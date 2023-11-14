@@ -11,13 +11,16 @@ class Quantizer(nn.Module):
     def encode(self, X):
         # Calculate distances to quantization levels
         distances = torch.abs(X.unsqueeze(1) - self.levels)
+        # print('Distances {}'.format(distances))
         # Get the index of the nearest level
-        indices = torch.argmin(distances, dim=1)
+        indices = torch.argmin(distances, dim=-1)
+        # print('Indices {}'.format(indices))
         return indices
 
     def decode(self, indices):
         # Map indices back to quantization levels
-        return self.levels[indices]
+        # print('Levels[Indices] {}'.format(self.levels[indices]))
+        return self.levels[indices] 
 
     def forward(self, X):
         # Encode then decode the input
