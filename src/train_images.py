@@ -1,7 +1,7 @@
 import torch
 import sys
 
-def train(model, epochs, optimizer, loss_fn, data_loader, device):
+def train(model, epochs, optimizer, scheduler, loss_fn, data_loader, device):
     model.train()  # Set the model to training mode
     model.to(device)
     
@@ -13,11 +13,6 @@ def train(model, epochs, optimizer, loss_fn, data_loader, device):
             
             # Forward pass: compute the predicted outputs
             quantized_outputs = model(inputs)
-
-            # print('Inputs Shape: {}'.format(inputs.shape))
-            # print('Inputs: {}'.format(inputs))
-            # print('Quantized Shape: {}'.format(quantized_outputs.shape))
-            # print('Quantized: {}'.format(quantized_outputs))
             
             # Compute loss
             loss = loss_fn(quantized_outputs, inputs)
@@ -28,6 +23,7 @@ def train(model, epochs, optimizer, loss_fn, data_loader, device):
             optimizer.step()
 
             epoch_loss += loss.item() * inputs.size(0)
+        scheduler.step()
 
         # Print epoch statistics
         epoch_loss /= len(data_loader.dataset)
