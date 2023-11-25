@@ -38,13 +38,11 @@ def train(model, epochs, optimizer, scheduler, loss_fn, data_loader, device):
         epoch_loss /= len(data_loader.dataset)
         print(f'Epoch {epoch+1}/{epochs}, Loss: {epoch_loss:.4f}')
 
-
 def to_tensor(x):
     if isinstance(x, torch.Tensor):
         return x.clone().detach()
     else:
         return torch.tensor(x, dtype=torch.float32)
-
 
 def main():
     n_levels_list=[1, 2, 4, 8, 16]
@@ -52,7 +50,7 @@ def main():
     batch_size = 10
     epochs = 100
     M = 10000
-    data = torch.randn(M, 1)
+    data = torch.randn(M, M)
     loss_fn = nn.MSELoss()
     
     
@@ -65,12 +63,12 @@ def main():
     data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
     
     for n_levels in n_levels_list:
-        quantizer = Quantizer_Gaussian(data, n_levels)
+        quantizer = Quantizer_Gaussian(n_levels, N_input=M, N_output=M)
         
         optimizer = optim.Adam(quantizer.parameters(), lr=0.01)
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
         
-        train(quantizer, epochs, optimizer, scheduler, loss_fn, data_loader, 'cpu')
+        train(quantizer, epochs, optimizer, scheduler, loss_fn, data_loader, 'cuda')
         
         save_path = f'../params/quantizer_params_{n_levels}.pt'
         torch.save(quantizer.state_dict(), save_path)
