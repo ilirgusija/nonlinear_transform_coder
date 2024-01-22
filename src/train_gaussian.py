@@ -8,9 +8,10 @@ from torchvision import transforms, datasets
 import torch.optim as optim
 from torch.utils.data import TensorDataset, DataLoader
 import torch
+from torch.distributions import Normal
 import sys
 
-def train(model, epochs, optimizer, scheduler, loss_fn, data_loader, device):
+def train(model, epochs, optimizer, scheduler, lambda_, pdf_std, data_loader, device):
     model.train()  # Set the model to training mode
     model.to(device)
     
@@ -21,10 +22,12 @@ def train(model, epochs, optimizer, scheduler, loss_fn, data_loader, device):
             inputs = batch[0].to(device)
             
             # Forward pass: compute the predicted outputs
-            quantized_outputs = model(inputs)
+            outputs, quantized = model(inputs)
             
             # Compute loss
-            loss = loss_fn(quantized_outputs, inputs)
+            dist_loss = nn.MSELoss()(outputs, inputs)
+            rate_loss = rate_loss(quantized, pdf_std)
+            loss = dist_loss + lambda_ * rate_loss
 
             # Backward pass and optimization
             optimizer.zero_grad()
@@ -44,16 +47,23 @@ def to_tensor(x):
     else:
         return torch.tensor(x, dtype=torch.float32)
 
+# Rate Loss Function
+def rate_loss(quantized_values, std=1.0):
+    normal_dist = Normal(0, std)
+    # Calculating negative log-likelihood as a proxy for rate
+    nll = -normal_dist.log_prob(quantized_values)
+    return torch.mean(nll)
+
 def main():
-    n_levels_list=[1, 2, 4, 8, 16]
-    # n_levels_list=[4]
+    # n_levels_list=[1, 2, 4, 8, 16]
     batch_size = 10
     epochs = 100
     M = 10000
     data = torch.randn(M, M)
-    loss_fn = nn.MSELoss()
     
-    
+    # Define the loss weight
+    lambda_ = 0.0001
+
     # Apply the transform and create a dataset
     transform = transforms.Lambda(to_tensor)
     tensor_data = transform(data)
@@ -62,18 +72,19 @@ def main():
     dataset = TensorDataset(tensor_data)
     data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
     
-    for n_levels in n_levels_list:
-        quantizer = Quantizer_Gaussian(n_levels, N_input=M, N_output=M)
-        
-        optimizer = optim.Adam(quantizer.parameters(), lr=0.01)
-        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
-        
-        train(quantizer, epochs, optimizer, scheduler, loss_fn, data_loader, 'cuda')
-        
-        save_path = f'../params/quantizer_params_{n_levels}.pt'
-        torch.save(quantizer.state_dict(), save_path)
-        print(f"Saved trained model with {n_levels} levels to {save_path}")
+    # for n_levels in n_levels_list:
+    quantizer = Quantizer_Gaussian()    # Initialize the model
     
+    # Define the optimizer and scheduler
+    optimizer = optim.Adam(quantizer.parameters(), lr=0.01)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
+    
+    train(quantizer, epochs, optimizer, scheduler, lambda_, data_loader, 'cuda')
+    
+    save_path = f'../params/quantizer_params_{n_levels}.pt'
+    torch.save(quantizer.state_dict(), save_path)
+    print(f"Saved trained model with {n_levels} levels to {save_path}")
+
 
 if __name__ == "__main__":
 
