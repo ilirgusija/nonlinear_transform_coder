@@ -3,93 +3,78 @@ import torch
 import matplotlib.pyplot as plt
 from model import MNIST_Coder
 from torchvision import transforms, datasets
-import cv2
-import os
-import numpy as np
-import torchvision
+from torchvision.io import encode_jpeg, decode_jpeg
 from utils import device_manager
+from torch.utils.data import DataLoader
+import torch.nn as nn
+from torch.distributions import Normal
 
-def calculate_mse(image_a, image_b):
-    # Ensure the images are floats
-    image_a = image_a.astype(np.float32)
-    image_b = image_b.astype(np.float32)
-    mse = np.mean((image_a - image_b) ** 2)
-    return mse
+def calc_rate(quantized_values, std=1.0):
+    normal_dist = Normal(0, std)
+    # Calculating negative log-likelihood as a proxy for rate
+    nll = -normal_dist.log_prob(quantized_values)
+    return torch.mean(nll)
 
-def run_jpeg(image_path, quality=85):
-    # Load the original image
-    original_image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+def calc_distortion(orig, output):
+    dist = nn.MSELoss()
+    return dist(orig,output)
 
-    # Save the image with JPEG compression
-    jpeg_path = '../data/tmp/compressed_image.jpeg'
-    cv2.imwrite(jpeg_path, original_image, [cv2.IMWRITE_JPEG_QUALITY, quality])
+def gen_RD_graph_for_jpeg(img_batch):
+    d = []
+    r = []
+    for i in range(10, 105, 5):
+        distortion, rate = run_jpeg(img_batch, i)
+        d.append(distortion)
+        r.append(rate)    
+    plot_rate_distortion(d_jpeg=d, r_jpeg=r)
 
-    # Load the JPEG image back
-    jpeg_image = cv2.imread(jpeg_path, cv2.IMREAD_GRAYSCALE)
+def run_jpeg(img_batch, quality=85):
+    jpeg_buffer_batch = encode_jpeg(img_batch, quality)
+    decoded_img_batch = decode_jpeg(jpeg_buffer_batch)
 
-    # Calculate distortion (MSE) and bit rate (file size)
-    distortion = calculate_mse(original_image, jpeg_image)
-    file_size = os.path.getsize(jpeg_path) * 8  # Bit rate approximated by file size in bits
+    distortion = calc_distortion(decoded_img_batch, img_batch)
+    rate = calc_rate(jpeg_buffer_batch)
 
-    return distortion, file_size
+    return distortion, rate
 
-def run_model(model, img):
+def run_model(model, img_batch):
+    batch_size = img_batch.size(0)
+    
     # Flatten and convert the image to a batch for the model
-    img_batch = img.unsqueeze(0).view(1, -1)
+    img_batch = img_batch.view(batch_size, -1) # Flatten the imgs
     
     # Run the model
     with torch.no_grad():
         # Compress and then decompress the image
-        compressed_data = model.compress(img_batch)
-        output_batch = model.decompress(compressed_data)
+        output, quantized = model(img_batch)
 
     # Unflatten the input and output to visualize it as an image
-    original_img_np = img.squeeze().numpy()
-    output_img_np = output_batch.view(1, 28, 28).squeeze().numpy()
+    img_batch = img_batch.view(batch_size, 1, 28, 28)
+    output = output.view(batch_size, 1, 28, 28)
 
     # Calculate distortion (MSE)
-    distortion = calculate_mse(original_img_np * 255, output_img_np * 255)  # Scale images back to 0-255
+    distortion = calc_distortion(img_batch, output)
+    rate = calc_rate(quantized)
 
-    # Calculate rate (size of the compressed representation in bits)
-    # Note: You need to ensure that 'compressed_data' is a bytes object for this to work correctly
-    file_size = len(compressed_data) * 8  # Convert byte size to bit size
+    return distortion, rate
 
-    return distortion, file_size
-
-# Compare the rate-distortion of the model and JPEG
-def compare_rate_distortion(model, test_set):
-    distortions_jpeg = []
-    distortions_model = []
-    bit_rates_jpeg = []
-    bit_rates_model = []
-
-    for i in range(10):
-        img, _ = test_set[i]
-        # Assuming you save each test image to compare with JPEG
-        image_path = f'../data/tmp/test_image_{i}.png'
-        torchvision.utils.save_image(img, image_path)
-        
-        distortion_jpeg, bit_rate_jpeg = run_jpeg(image_path)
-        distortion_model, bit_rate_model = run_model(model, img)
-
-        distortions_jpeg.append(distortion_jpeg)
-        distortions_model.append(distortion_model)
-        bit_rates_jpeg.append(bit_rate_jpeg)
-        bit_rates_model.append(bit_rate_model)
-
-    # Plotting
+def plot_rate_distortion(d_model=None, r_model=None, d_jpeg=None, r_jpeg=None):
     plt.figure(figsize=(10, 5))
     plt.subplot(1, 2, 1)
-    plt.plot(distortions_jpeg, bit_rates_jpeg, label='JPEG')
-    plt.plot(distortions_model, bit_rates_model, label='Model')
+    if d_jpeg is not None and r_jpeg is not None:
+        plt.plot(d_jpeg, r_jpeg, label='JPEG')
+    if d_model is not None and r_model is not None:
+        plt.plot(d_model, r_model, label='Model')
     plt.ylabel('Bit Rate (bits)')
     plt.xlabel('Distortion (MSE)')
     plt.title('Rate-Distortion Comparison')
     plt.legend()
     
     plt.subplot(1, 2, 2)
-    plt.scatter(distortions_jpeg, bit_rates_jpeg, label='JPEG')
-    plt.scatter(distortions_model, bit_rates_model, label='Model')
+    if d_jpeg is not None and r_jpeg is not None:
+        plt.scatter(d_jpeg, r_jpeg, label='JPEG')
+    if d_model is not None and r_model is not None:
+        plt.scatter(d_model, r_model, label='Model')
     plt.ylabel('Bit Rate (bits)')
     plt.xlabel('Distortion (MSE)')
     plt.title('Rate-Distortion Scatter Plot')
@@ -99,6 +84,29 @@ def compare_rate_distortion(model, test_set):
     plt.savefig('../plots/rate_distortion_comparison.png')
     plt.show()
 
+# Compare the rate-distortion of the model and JPEG
+def run_test(model, test_loader, device, compare=False):
+    d_jpeg = None
+    d_model = None
+    if compare:
+        d_jpeg = []
+        d_model = []
+    r_jpeg = []
+    r_model = []
+
+    for img, _ in test_loader:
+        img = img.to(device)
+        if compare:
+            distortion_jpeg, bit_rate_jpeg = run_jpeg(img)
+            d_jpeg.append(distortion_jpeg)
+            d_model.append(distortion_model)
+        with torch.no_grad():   
+            distortion_model, bit_rate_model = run_model(model, img)
+        r_jpeg.append(bit_rate_jpeg)
+        r_model.append(bit_rate_model)
+        
+    plot_rate_distortion(d_model=d_model, r_model=r_model, d_jpeg=d_jpeg, r_jpeg=r_jpeg)
+
 def main():
     param_path = "../params/quantizer_MNIST_params_0.pth"
     model = MNIST_Coder()
@@ -106,10 +114,15 @@ def main():
     model.load_state_dict(torch.load(param_path, map_location=device))
     model.eval()
     
-    test_transform = transforms.Compose([transforms.ToTensor()]) 
-    test_set = datasets.MNIST('../data/mnist', train=False, download=True, transform=test_transform)
+    batch_size = 16
+    test_loader = DataLoader(datasets.MNIST('../data/mnist',
+                                            train=False,
+                                            download=False,
+                                            transform=transforms.Compose([transforms.ToTensor()])),
+                            batch_size=batch_size,
+                            shuffle=False)
     
-    compare_rate_distortion(model, test_set)
+    run_test(model, test_loader, device)
 
 if __name__ == "__main__":
     main()

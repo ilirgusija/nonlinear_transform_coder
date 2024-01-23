@@ -20,3 +20,8 @@ def device_manager(model):
         device = torch.device("cpu")
         print("Using CPU.")
     return model, device
+
+def uniform_quantizer(x):
+    # Define the range of input values
+    quantized_values = torch.round(x + 0.5)
+    return quantized_values

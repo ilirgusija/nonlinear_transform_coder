@@ -2,14 +2,40 @@ from model import Quantizer_Gaussian
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-from torch.distributions import Normal
+from scipy.stats import norm
 
-# Rate Loss Function
-def rate(quantized_values, std=1.0):
-    normal_dist = Normal(0, std)
-    # Calculating negative log-likelihood as a proxy for rate
-    nll = -normal_dist.log_prob(quantized_values)
-    return torch.mean(nll)
+def lloyd_max_quantization(data, n_levels, max_iter=100, tol=1e-5, verbose=False, save_dir="../output"):
+    min_data, max_data = np.min(data), np.max(data)
+    levels = np.linspace(min_data, max_data, n_levels)
+    decision_boundaries = np.zeros(n_levels + 1)
+
+    for iteration in range(max_iter):
+        decision_boundaries[0], decision_boundaries[-1] = min_data, max_data
+        decision_boundaries[1:-1] = 0.5 * (levels[:-1] + levels[1:])
+
+        new_levels = []
+        for i in range(n_levels):
+            data_slice = data[(data >= decision_boundaries[i]) & (data < decision_boundaries[i+1])]
+            if data_slice.size > 0:
+                new_levels.append(np.mean(data_slice))
+            else:
+                new_levels.append(levels[i])  # Keep the level unchanged if the slice is empty
+
+        new_levels = np.array(new_levels)
+        if np.linalg.norm(new_levels - levels) < tol:
+            break
+
+        levels = new_levels
+
+
+    return levels, decision_boundaries
+
+def quantize_data_with_lm(data, levels, boundaries):
+    quantized_data = np.zeros_like(data)
+    for i in range(len(levels)):
+        indices = np.where((data >= boundaries[i]) & (data < boundaries[i + 1]))
+        quantized_data[indices] = levels[i]
+    return quantized_data
 
 def compare_quantizers(data, num_levels_list, num_runs=10):
     data_np = data.numpy() if isinstance(data, torch.Tensor) else data  # Convert to NumPy array if needed
@@ -43,6 +69,16 @@ def compare_quantizers(data, num_levels_list, num_runs=10):
             trained_mse+=rate(trained_quantized_data)
             
         print(f"Levels: {n_levels} | Lloyd-Max Distortion: {lm_mse/float(num_runs):.4f} | Trained Distortion: {trained_mse/float(num_runs):.4f}")
+  
+# Rate Function
+def calc_rate(quantized_values, std=1.0):
+    # Define the normal distribution with mean 0 and given standard deviation
+    normal_dist = norm(loc=0, scale=std)
+
+    # Calculating negative log-likelihood as a proxy for rate
+    nll = -normal_dist.logpdf(quantized_values)
+    
+    return np.mean(nll)
     
 def plot_rate_distortion(data, lambda_, num_runs=10):
     data_np = data.numpy() if isinstance(data, torch.Tensor) else data  # Convert to NumPy array if needed
@@ -65,7 +101,7 @@ def plot_rate_distortion(data, lambda_, num_runs=10):
 
             # Calculate distortion and rate
             trained_mse += np.mean((data_np - trained_output) ** 2)
-            trained_mse+=rate(trained_quantized_data)
+            trained_mse += calc_rate(trained_quantized_data)
         
         avg_rate = trained_rate/float(num_runs)
         avg_distortion = trained_mse/float(num_runs)
@@ -94,44 +130,6 @@ def plot_rate_distortion(data, lambda_, num_runs=10):
     plt.savefig('../plots/rate_distortion_gauss.png')
     plt.show()
     
-def lloyd_max_quantization(data, n_levels, max_iter=100, tol=1e-5, verbose=False, save_dir="../output"):
-    min_data, max_data = np.min(data), np.max(data)
-    levels = np.linspace(min_data, max_data, n_levels)
-    decision_boundaries = np.zeros(n_levels + 1)
-
-    for iteration in range(max_iter):
-        decision_boundaries[0], decision_boundaries[-1] = min_data, max_data
-        decision_boundaries[1:-1] = 0.5 * (levels[:-1] + levels[1:])
-
-        new_levels = []
-        for i in range(n_levels):
-            data_slice = data[(data >= decision_boundaries[i]) & (data < decision_boundaries[i+1])]
-            if data_slice.size > 0:
-                new_levels.append(np.mean(data_slice))
-            else:
-                new_levels.append(levels[i])  # Keep the level unchanged if the slice is empty
-        
-        if verbose:
-            visualize_quantization(data, levels, decision_boundaries, iteration, save_dir)
-
-        new_levels = np.array(new_levels)
-        if np.linalg.norm(new_levels - levels) < tol:
-            break
-
-        levels = new_levels
-    if verbose:
-        create_animation(save_dir, '../output/quantization_animation.gif', frame_duration=0.5)
-        cleanup_frames()
-
-    return levels, decision_boundaries
-
-def quantize_data_with_lm(data, levels, boundaries):
-    quantized_data = np.zeros_like(data)
-    for i in range(len(levels)):
-        indices = np.where((data >= boundaries[i]) & (data < boundaries[i + 1]))
-        quantized_data[indices] = levels[i]
-    return quantized_data
-
 # Compare the quantizers
 def main():
     M = 10000

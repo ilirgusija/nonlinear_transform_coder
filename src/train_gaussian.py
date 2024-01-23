@@ -4,7 +4,7 @@ import torch
 import matplotlib.pyplot as plt
 from model import Quantizer_Gaussian
 from train_images import train
-from torchvision import transforms, datasets
+from torchvision import transforms
 import torch.optim as optim
 from torch.utils.data import TensorDataset, DataLoader
 import torch
@@ -14,13 +14,13 @@ import datetime
 
 def train(model, epochs, optimizer, scheduler, lambda_, pdf_std, data_loader, device):
     print("training...")
-    model.train()  # Set the model to training mode
+    model.train()
     model.to(device)
     losses_train = []
+    dist_loss_fn = nn.MSELoss()
     
     for epoch in range(epochs):
         epoch_loss = 0.0
-
         for batch in data_loader:
             inputs = batch[0].to(device)
             
@@ -28,7 +28,7 @@ def train(model, epochs, optimizer, scheduler, lambda_, pdf_std, data_loader, de
             outputs, quantized = model(inputs)
             
             # Compute loss
-            dist_loss = nn.MSELoss()(outputs, inputs)
+            dist_loss = dist_loss_fn(outputs, inputs)
             rate_loss = rate_loss_fn(quantized, pdf_std)
             loss = dist_loss + lambda_ * rate_loss
 
@@ -59,27 +59,30 @@ def rate_loss_fn(quantized_values, std=1.0):
     nll = -normal_dist.log_prob(quantized_values)
     return torch.mean(nll)
 
+def gen_gaussian_data(x, y, batch_size):
+    data = torch.randn(x, y)
+    # Apply the transform and create a dataset
+    transform = transforms.Lambda(to_tensor)
+    tensor_data = transform(data)
+
+    # Create a TensorDataset and DataLoader
+    dataset = TensorDataset(tensor_data)
+    data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    return data_loader
+
 def main():
     batch_size = 10
     epochs = 50
     M = 10000
-    data = torch.randn(M, M)
     pdf_std = 1.0
+    
+    data_loader = gen_gaussian_data(M, 1, batch_size)
     
     # Define the loss weight
     lambda_ = [0.01, 0.05, 0.1, 0.5, 1, 2, 4, 6, 8, 10]
     for idx, l_ in enumerate(lambda_):
-        # Apply the transform and create a dataset
-        transform = transforms.Lambda(to_tensor)
-        tensor_data = transform(data)
-
-        # Create a TensorDataset and DataLoader
-        dataset = TensorDataset(tensor_data)
-        data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
-        
-        # for n_levels in n_levels_list:
-        quantizer = Quantizer_Gaussian(N_input=M, N_bottleneck=10, N_output=M)    # Initialize the model
-        quantizer, device = device_manager(quantizer)
+        quantizer = Quantizer_Gaussian(N_input=1, N_bottleneck=10, N_output=1)    # Initialize the model
+        quantizer, device = device_manager(quantizer) # Move model to necessary device and return the device type
         
         # Define the optimizer and scheduler
         optimizer = optim.Adam(quantizer.parameters(), lr=0.01)

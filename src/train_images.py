@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from model import MNIST_Coder
 from torchvision import transforms, datasets
 import torch.optim as optim
-from torch.utils.data import TensorDataset, DataLoader
+from torch.utils.data import DataLoader
 import torch
 from torch.distributions import Normal
 import datetime
