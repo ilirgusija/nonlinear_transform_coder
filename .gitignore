@@ -1,6 +1,3 @@
 __pycache__
-*params*
-*.pth
 node_modules
 data/*
-params/*

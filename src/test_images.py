@@ -11,7 +11,7 @@ def run_test(model, test_set):
     
     # Run the model
     with torch.no_grad():
-        output_batch = model(img_batch)
+        output_batch, _ = model(img_batch)
     
     # Unflatten the input and output to visualize it as an image
     img = img.squeeze().numpy()
@@ -24,18 +24,18 @@ def run_test(model, test_set):
     plt.imshow(output_img, cmap='gray') 
     plt.show() 
     
-def main(param_path):
-    model = Quantizer_Images()
-    model.load_state_dict(torch.load(param_path))
-    model.eval()
-    
-    test_transform = transforms.Compose([transforms.ToTensor()]) 
-    test_set = datasets.MNIST('./data/mnist', train=False, download=False, transform=test_transform)
-    
-    run_test(model, test_set)
+def main():
+    nums = [0,1,2,3]
+    for num in nums:
+        model = Quantizer_Images()
+        model.load_state_dict(torch.load(f"../params/quantizer_MNIST_params_{num}.pth"))
+        model.eval()
+        test_transform = transforms.Compose([transforms.ToTensor()]) 
+        test_set = datasets.MNIST('../data/mnist', train=False, download=False, transform=test_transform)
+        
+        run_test(model, test_set)
 
 if __name__ == "__main__":
-    param_path = "../params/quantizer_MNIST_params.pth"
 
     # Call the main function with parsed arguments
-    main(param_path)
+    main()

@@ -54,8 +54,8 @@ def rate_loss_fn(quantized_values, std=1.0):
     return torch.mean(nll)
 
 def main():
-    batch_size = 10
-    epochs = 20
+    batch_size = 16
+    epochs = 30
     M = 10000
     
     pdf_std=1.0
@@ -69,7 +69,7 @@ def main():
                                              transform=transforms.Compose([transforms.ToTensor()])),
                               batch_size=batch_size,
                               shuffle=True)
-    for l_ in lambda_:
+    for idx, l_ in enumerate(lambda_):
         quantizer = Quantizer_Images()    # Initialize the model
         
         # Setup for DataParallel
@@ -92,7 +92,7 @@ def main():
         
         # Define the optimizer and scheduler
         optimizer = optim.Adam(quantizer.parameters(), lr=0.01)
-        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
         
         losses_train = train(quantizer, epochs, optimizer, scheduler, l_, pdf_std, data_loader, device)
         
@@ -101,10 +101,11 @@ def main():
         plt.xlabel('epochs')
         plt.ylabel('loss')
         plt.title('Loss Curve')
-        plot_path = f'../params/quantizer_MNIST_{l_}.png'
+        plot_path = f'../plots/quantizer_MNIST_{idx}.png'
         plt.savefig(plot_path)
+        plt.close()
         
-        save_path = f'../params/quantizer_MNIST_params_{l_}.pth'
+        save_path = f'../params/quantizer_MNIST_params_{idx}.pth'
         torch.save(quantizer.state_dict(), save_path)
         print(f"Saved trained model to {save_path}")
     
