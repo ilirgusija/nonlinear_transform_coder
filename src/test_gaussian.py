@@ -51,7 +51,7 @@ def compare_quantizers(data, num_levels_list, num_runs=10):
 
             # Load the trained Quantizer model
             quantizer = Quantizer_Gaussian(data, n_levels)  # Assuming data is appropriate for initializing Quantizer
-            quantizer.load_state_dict(torch.load(f'../params/quantizer_params_{n_levels}.pt'))
+            quantizer.load_state_dict(torch.load(f'../params/quantizer_params_{n_levels}.pth'))
             quantizer.eval()
             # Quantize data using the trained model
             trained_quantized_data = quantizer(data).detach().numpy()  # Convert to NumPy array for MSE calculation

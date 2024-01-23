@@ -81,12 +81,11 @@ def main():
     
     train(quantizer, epochs, optimizer, scheduler, lambda_, data_loader, 'cuda')
     
-    save_path = f'../params/quantizer_params_{n_levels}.pt'
+    save_path = f'../params/quantizer_gauss_params.pth'
     torch.save(quantizer.state_dict(), save_path)
-    print(f"Saved trained model with {n_levels} levels to {save_path}")
+    print(f"Saved trained model to {save_path}")
 
 
 if __name__ == "__main__":
-
     # Call the main function with parsed arguments
     main()

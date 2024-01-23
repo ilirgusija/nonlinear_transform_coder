@@ -53,15 +53,15 @@ def rate_loss_fn(quantized_values, std=1.0):
     nll = -normal_dist.log_prob(quantized_values)
     return torch.mean(nll)
 
-def main(plot_path):
+def main():
     batch_size = 10
-    epochs = 100
+    epochs = 20
     M = 10000
     
     pdf_std=1.0
     
     # Define the loss weight
-    lambda_ = 0.0001
+    lambda_ = [0.0001, 0.001, 0.01, 0.1]
 
     data_loader = DataLoader(datasets.MNIST('../data/mnist',
                                              train=True,
@@ -69,46 +69,46 @@ def main(plot_path):
                                              transform=transforms.Compose([transforms.ToTensor()])),
                               batch_size=batch_size,
                               shuffle=True)
-    
-    quantizer = Quantizer_Images()    # Initialize the model
-    
-    # Setup for DataParallel
-    if torch.backends.mps.is_available():
-        device = torch.device("mps")
-        print("Using MPS.")
+    for l_ in lambda_:
+        quantizer = Quantizer_Images()    # Initialize the model
         
-    elif torch.cuda.is_available():
-        device = torch.device("cuda")
-        # Check if multiple GPUs are available
-        num_gpus = torch.cuda.device_count()
-        print(f"Using {num_gpus} GPUs.")
+        # Setup for DataParallel
+        if torch.backends.mps.is_available():
+            device = torch.device("mps")
+            print("Using MPS.")
+            
+        elif torch.cuda.is_available():
+            device = torch.device("cuda")
+            # Check if multiple GPUs are available
+            num_gpus = torch.cuda.device_count()
+            print(f"Using {num_gpus} GPUs.")
+            
+            # Wrap models with DataParallel if more than one GPU is available
+            if num_gpus > 1:
+                quantizer = nn.DataParallel(quantizer)
+        else:
+            device = torch.device("cpu")
+            print("Using CPU.")
         
-        # Wrap models with DataParallel if more than one GPU is available
-        if num_gpus > 1:
-            quantizer = nn.DataParallel(quantizer)
-    else:
-        device = torch.device("cpu")
-        print("Using CPU.")
-    
-    # Define the optimizer and scheduler
-    optimizer = optim.Adam(quantizer.parameters(), lr=0.01)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
-    
-    losses_train = train(quantizer, epochs, optimizer, scheduler, lambda_, pdf_std, data_loader, device)
-    
-    # Plot loss curve
-    plt.plot(losses_train)
-    plt.xlabel('epochs')
-    plt.ylabel('loss')
-    plt.title('Loss Curve')
-    plt.savefig(plot_path)
-    
-    save_path = f'../params/quantizer_MNIST_params.pt'
-    torch.save(quantizer.state_dict(), save_path)
-    print(f"Saved trained model to {save_path}")
+        # Define the optimizer and scheduler
+        optimizer = optim.Adam(quantizer.parameters(), lr=0.01)
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
+        
+        losses_train = train(quantizer, epochs, optimizer, scheduler, l_, pdf_std, data_loader, device)
+        
+        # Plot loss curve
+        plt.plot(losses_train)
+        plt.xlabel('epochs')
+        plt.ylabel('loss')
+        plt.title('Loss Curve')
+        plot_path = f'../params/quantizer_MNIST_{l_}.png'
+        plt.savefig(plot_path)
+        
+        save_path = f'../params/quantizer_MNIST_params_{l_}.pth'
+        torch.save(quantizer.state_dict(), save_path)
+        print(f"Saved trained model to {save_path}")
     
 
 if __name__ == "__main__":
-    p = "../plots/quantizer_MNIST_loss.png"
     # Call the main function with parsed arguments
-    main(p)
+    main()
