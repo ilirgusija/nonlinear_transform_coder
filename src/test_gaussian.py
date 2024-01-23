@@ -2,40 +2,15 @@ from model import Quantizer_Gaussian
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-import os
-import imageio.v2 as imageio
+from torch.distributions import Normal
 
-def cleanup_frames(directory="../output"):
-    for file_name in os.listdir(directory):
-        if file_name.endswith('.png'):
-            os.remove(os.path.join(directory, file_name))
-   
-def visualize_quantization(data, levels, decision_boundaries, iteration, save_dir):
-    plt.figure(figsize=(10, 6))
-    plt.title(f"Lloyd-Max Quantization - Iteration {iteration}")
-    plt.scatter(data, np.zeros_like(data), label='Data Points', alpha=0.5)
-    plt.scatter(levels, np.zeros_like(levels), color='red', label='Quantization Levels')
-    for boundary in decision_boundaries:
-        plt.axvline(x=boundary, color='green', linestyle='--')
-    plt.legend()
+# Rate Loss Function
+def rate(quantized_values, std=1.0):
+    normal_dist = Normal(0, std)
+    # Calculating negative log-likelihood as a proxy for rate
+    nll = -normal_dist.log_prob(quantized_values)
+    return torch.mean(nll)
 
-    # Save the plot as an image
-    if iteration < 10:
-        iteration = "0" + str(iteration)
-    filename = os.path.join(save_dir, f'iteration_{iteration}.png')
-    plt.savefig(filename)
-    plt.close()
-    
-def create_animation(save_dir, output_file, frame_duration):
-    images = []
-    for file_name in sorted(os.listdir(save_dir)):
-        if file_name.endswith('.png'):
-            file_path = os.path.join(save_dir, file_name)
-            images.append(imageio.imread(file_path))
-    
-    # Create a GIF
-    imageio.mimsave(output_file, images, duration=frame_duration)
-        
 def compare_quantizers(data, num_levels_list, num_runs=10):
     data_np = data.numpy() if isinstance(data, torch.Tensor) else data  # Convert to NumPy array if needed
 
@@ -54,13 +29,71 @@ def compare_quantizers(data, num_levels_list, num_runs=10):
             quantizer.load_state_dict(torch.load(f'../params/quantizer_params_{n_levels}.pth'))
             quantizer.eval()
             # Quantize data using the trained model
-            trained_quantized_data = quantizer(data).detach().numpy()  # Convert to NumPy array for MSE calculation
+            with torch.no_grad():
+                trained_output, compressed_data = quantizer(data)
+            
+            trained_quantized_data = compressed_data.detach().numpy()  # Convert to NumPy array for MSE calculation
 
             # Calculate MSE
             lm_mse += np.mean((data_np - lm_quantized_data) ** 2)
-            trained_mse += np.mean((data_np - trained_quantized_data) ** 2)
+            trained_mse += np.mean((data_np - trained_output) ** 2)
+            
+            # Calculate Rate
+            lm_rate+=rate(lm_quantized_data)
+            trained_mse+=rate(trained_quantized_data)
+            
         print(f"Levels: {n_levels} | Lloyd-Max Distortion: {lm_mse/float(num_runs):.4f} | Trained Distortion: {trained_mse/float(num_runs):.4f}")
+    
+def plot_rate_distortion(data, lambda_, num_runs=10):
+    data_np = data.numpy() if isinstance(data, torch.Tensor) else data  # Convert to NumPy array if needed
+    rates_model= []
+    distortions_model = []
+    for l_ in lambda_:
+        trained_mse=0
+        trained_rate=0
+        for i in range(num_runs):
+            # Load the trained Quantizer model
+            quantizer = Quantizer_Gaussian(data)  # Assuming data is appropriate for initializing Quantizer
+            quantizer.load_state_dict(torch.load(f'../params/quantizer_gauss_params_{i}.pth'))
+            quantizer.eval()
+            
+            # Quantize data using the trained model
+            with torch.no_grad():
+                trained_output, compressed_data = quantizer(data)
+            
+            trained_quantized_data = compressed_data.detach().numpy()  # Convert to NumPy array for MSE calculation
+
+            # Calculate distortion and rate
+            trained_mse += np.mean((data_np - trained_output) ** 2)
+            trained_mse+=rate(trained_quantized_data)
         
+        avg_rate = trained_rate/float(num_runs)
+        avg_distortion = trained_mse/float(num_runs)
+        rates_model.append(avg_rate)
+        distortions_model.append(avg_distortion)
+            
+        print(f"Lambda: {l_} | Trained Rate: {avg_rate:.4f} | Trained Distortion: {avg_distortion:.4f}")    
+        
+    # Plotting
+    plt.figure(figsize=(10, 5))
+    plt.subplot(1, 2, 1)
+    plt.plot(distortions_model, rates_model, label='Model')
+    plt.ylabel('Bit Rate (bits)')
+    plt.xlabel('Distortion (MSE)')
+    plt.title('Rate-Distortion Comparison')
+    plt.legend()
+    
+    plt.subplot(1, 2, 2)
+    plt.scatter(distortions_model, rates_model, label='Model')
+    plt.ylabel('Bit Rate (bits)')
+    plt.xlabel('Distortion (MSE)')
+    plt.title('Rate-Distortion Scatter Plot')
+    plt.legend()
+
+    plt.tight_layout()
+    plt.savefig('../plots/rate_distortion_gauss.png')
+    plt.show()
+    
 def lloyd_max_quantization(data, n_levels, max_iter=100, tol=1e-5, verbose=False, save_dir="../output"):
     min_data, max_data = np.min(data), np.max(data)
     levels = np.linspace(min_data, max_data, n_levels)
@@ -102,8 +135,10 @@ def quantize_data_with_lm(data, levels, boundaries):
 # Compare the quantizers
 def main():
     M = 10000
-    data = torch.randn(M, 1)
-    compare_quantizers(data, num_levels_list=[1,2,4,8,16])
+    data = torch.randn(M, M)
+    lambda_ = [0.01, 0.05, 0.1, 0.5, 1, 2, 4, 6, 8, 10]
+    # compare_quantizers(data)
+    plot_rate_distortion(data, lambda_)
 
 if __name__ == "__main__":
     main()

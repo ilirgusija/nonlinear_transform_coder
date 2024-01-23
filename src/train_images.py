@@ -62,8 +62,7 @@ def main():
     pdf_std=1.0
     
     # Define the loss weight
-    lambda_ = [0.0001, 0.001, 0.01, 0.1]
-
+    lambda_ = [0.01, 0.05, 0.1, 0.5, 1, 2, 4, 6, 8, 10]
     data_loader = DataLoader(datasets.MNIST('../data/mnist',
                                              train=True,
                                              download=True,
@@ -74,7 +73,6 @@ def main():
         quantizer = MNIST_Coder()    # Initialize the model
 
         quantizer, device = device_manager(quantizer)
-        # Define the optimizer and scheduler
         optimizer = optim.Adam(quantizer.parameters(), lr=0.01)
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
         
@@ -93,7 +91,6 @@ def main():
         torch.save(quantizer.state_dict(), save_path)
         print(f"Saved trained model to {save_path}")
     
-
 if __name__ == "__main__":
     # Call the main function with parsed arguments
     main()

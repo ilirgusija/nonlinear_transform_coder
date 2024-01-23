@@ -89,7 +89,7 @@ def compare_rate_distortion(model, test_set):
     
     plt.subplot(1, 2, 2)
     plt.scatter(distortions_jpeg, bit_rates_jpeg, label='JPEG')
-    plt.scatter(distortions_model, bit_rates_jpeg, label='Model')
+    plt.scatter(distortions_model, bit_rates_model, label='Model')
     plt.ylabel('Bit Rate (bits)')
     plt.xlabel('Distortion (MSE)')
     plt.title('Rate-Distortion Scatter Plot')

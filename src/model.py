@@ -11,7 +11,7 @@ class Quantizer_Gaussian(nn.Module):
     def __init__(self, N_input=5, N_bottleneck=5, N_output=5):
         super(Quantizer_Gaussian, self).__init__()
         self.delta = 1.0/2.0
-        N2 = 2
+        N2 = int(N_input/2)
         # N3=100
         self.fc1 = nn.Linear(N_input, N2)
         # self.fc2 = nn.Linear(N2, N3)
@@ -30,16 +30,12 @@ class Quantizer_Gaussian(nn.Module):
         X = self.fc1(X)
         X = F.relu(X)
         X = self.fc2(X)
-        # X = F.relu(X)
-        # X = self.fc2(X)
-        X = F.sigmoid(X)
+        X = F.relu(X)
         return X
 
     def inverse_transform(self, X):
         X = self.fc3(X)
         X = F.relu(X)
-        # X = self.fc5(X)
-        # X = F.relu(X)
         X = self.fc4(X)
         return X
 
@@ -47,7 +43,7 @@ class Quantizer_Gaussian(nn.Module):
         # Encode then decode the input
         features = self.transform(X)
         if self.training:
-            noise = (torch.rand_like(features) - 0.5) * self.delta
+            noise = torch.rand_like(features)
             quantized = features + noise
             output = self.inverse_transform(quantized)
         else:
@@ -82,7 +78,7 @@ class MNIST_Coder(nn.Module):
         X = self.fce2(X)
         X = F.relu(X)
         X = self.fce3(X)
-        X = F.sigmoid(X)
+        X = F.relu(X)
         return X
 
     def inverse_transform(self, X):
