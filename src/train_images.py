@@ -1,13 +1,14 @@
 import torch.nn as nn
 import torch
 import matplotlib.pyplot as plt
-from model import Quantizer_Images
+from model import MNIST_Coder
 from torchvision import transforms, datasets
 import torch.optim as optim
 from torch.utils.data import TensorDataset, DataLoader
 import torch
 from torch.distributions import Normal
 import datetime
+from utils import device_manager
 import torchvision
 
 def train(model, epochs, optimizer, scheduler, lambda_, pdf_std, data_loader, device):
@@ -70,26 +71,9 @@ def main():
                               batch_size=batch_size,
                               shuffle=True)
     for idx, l_ in enumerate(lambda_):
-        quantizer = Quantizer_Images()    # Initialize the model
-        
-        # Setup for DataParallel
-        if torch.backends.mps.is_available():
-            device = torch.device("mps")
-            print("Using MPS.")
-            
-        elif torch.cuda.is_available():
-            device = torch.device("cuda")
-            # Check if multiple GPUs are available
-            num_gpus = torch.cuda.device_count()
-            print(f"Using {num_gpus} GPUs.")
-            
-            # Wrap models with DataParallel if more than one GPU is available
-            if num_gpus > 1:
-                quantizer = nn.DataParallel(quantizer)
-        else:
-            device = torch.device("cpu")
-            print("Using CPU.")
-        
+        quantizer = MNIST_Coder()    # Initialize the model
+
+        quantizer, device = device_manager(quantizer)
         # Define the optimizer and scheduler
         optimizer = optim.Adam(quantizer.parameters(), lr=0.01)
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)

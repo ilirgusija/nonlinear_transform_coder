@@ -57,33 +57,33 @@ def rate_loss(quantized_values, std=1.0):
 def main():
     # n_levels_list=[1, 2, 4, 8, 16]
     batch_size = 10
-    epochs = 100
+    epochs = 50
     M = 10000
     data = torch.randn(M, M)
     
     # Define the loss weight
-    lambda_ = 0.0001
+    lambda_ = [0.0001, 0.001, 0.01, 0.1]
+    for idx, l_ in enumerate(lambda_):
+        # Apply the transform and create a dataset
+        transform = transforms.Lambda(to_tensor)
+        tensor_data = transform(data)
 
-    # Apply the transform and create a dataset
-    transform = transforms.Lambda(to_tensor)
-    tensor_data = transform(data)
-
-    # Create a TensorDataset and DataLoader
-    dataset = TensorDataset(tensor_data)
-    data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
-    
-    # for n_levels in n_levels_list:
-    quantizer = Quantizer_Gaussian()    # Initialize the model
-    
-    # Define the optimizer and scheduler
-    optimizer = optim.Adam(quantizer.parameters(), lr=0.01)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
-    
-    train(quantizer, epochs, optimizer, scheduler, lambda_, data_loader, 'cuda')
-    
-    save_path = f'../params/quantizer_gauss_params.pth'
-    torch.save(quantizer.state_dict(), save_path)
-    print(f"Saved trained model to {save_path}")
+        # Create a TensorDataset and DataLoader
+        dataset = TensorDataset(tensor_data)
+        data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+        
+        # for n_levels in n_levels_list:
+        quantizer = Quantizer_Gaussian()    # Initialize the model
+        
+        # Define the optimizer and scheduler
+        optimizer = optim.Adam(quantizer.parameters(), lr=0.01)
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
+        
+        train(quantizer, epochs, optimizer, scheduler, l_, data_loader, 'mps')
+        
+        save_path = f'../params/quantizer_gauss_params_{idx}.pth'
+        torch.save(quantizer.state_dict(), save_path)
+        print(f"Saved trained model to {save_path}")
 
 
 if __name__ == "__main__":
