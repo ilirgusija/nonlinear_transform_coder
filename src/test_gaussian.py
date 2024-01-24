@@ -134,7 +134,9 @@ def main():
         rates_model.append(avg_rate)
         distortions_model.append(avg_distortion)
             
-    plot_rate_disortion(distortions_model.cpu(), rates_model.cpu())
+    distortions_model = [l.cpu().detach().numpy() for l in distortions_model]
+    rates_model = [l.cpu().detach().numpy() for l in rates_model]
+    plot_rate_disortion(distortions_model, rates_model)
     
 if __name__ == "__main__":
     main()
