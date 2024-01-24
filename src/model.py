@@ -45,7 +45,7 @@ class Quantizer_Gaussian(nn.Module):
         # Encode then decode the input
         features = self.transform(X)
         if self.training:
-            noise = torch.rand_like(features)
+            noise = torch.rand_like(features) - 0.5
             quantized = features + noise
             output = self.inverse_transform(quantized)
         else:
@@ -59,12 +59,15 @@ class MNIST_Coder(nn.Module):
         self.delta = 1.0/2.0
         N2 = 392
         N3 = int(N2/2)
+        
         self.fc1_e = nn.Linear(N_input, N2)
         self.fc2_e = nn.Linear(N2, N3)
         self.fc3_e = nn.Linear(N3, N_bottleneck)
+        
         self.fc1_d = nn.Linear(N_bottleneck, N3)
         self.fc2_d = nn.Linear(N3, N2)
         self.fc3_d = nn.Linear(N2, N_output)
+        
         self.compression_method = compression_method
 
     def transform(self, X):
@@ -135,7 +138,7 @@ class MNIST_Coder(nn.Module):
     def forward(self, X):
         features = self.transform(X)
         if self.training:
-            noise = (torch.rand_like(features) - 0.5) * self.delta
+            noise = torch.rand_like(features) - 0.5
             quantized = features + noise
             output = self.inverse_transform(quantized)
         else:

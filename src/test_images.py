@@ -4,21 +4,10 @@ import matplotlib.pyplot as plt
 from model import MNIST_Coder
 from torchvision import transforms, datasets
 from torchvision.io import encode_jpeg, decode_jpeg
-from utils import device_manager
+from utils import device_manager, calc_distortion, calc_rate
 from torch.utils.data import DataLoader
-import torch.nn as nn
-from torch.distributions import Normal
 
-def calc_rate(quantized_values, std=1.0):
-    normal_dist = Normal(0, std)
-    # Calculating negative log-likelihood as a proxy for rate
-    nll = -normal_dist.log_prob(quantized_values)
-    return torch.mean(nll)
-
-def calc_distortion(orig, output):
-    dist = nn.MSELoss()
-    return dist(orig,output)
-
+# Generate the Rate Distortion graph for JPEG based on quality
 def gen_RD_graph_for_jpeg(img_batch):
     d = []
     r = []
@@ -38,6 +27,7 @@ def run_jpeg(img_batch, quality=85):
     return distortion, rate
 
 def run_model(model, img_batch):
+    model.eval()
     batch_size = img_batch.size(0)
     
     # Flatten and convert the image to a batch for the model
@@ -45,7 +35,6 @@ def run_model(model, img_batch):
     
     # Run the model
     with torch.no_grad():
-        # Compress and then decompress the image
         output, quantized = model(img_batch)
 
     # Unflatten the input and output to visualize it as an image

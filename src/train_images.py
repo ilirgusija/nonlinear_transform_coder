@@ -9,11 +9,15 @@ import torch
 import datetime
 from utils import device_manager, calc_distortion, calc_rate
 
-def train(model, epochs, optimizer, scheduler, lambda_, pdf_std, data_loader, device):
+def train(model, epochs, optimizer, scheduler, lambda_, pdf_std, data_loader, device, early_stopping_rounds=10):
     print('training ...')
     model.train()  # Set the model to training mode
     model.to(device)
     losses_train = []
+    
+    # Early stopping
+    best_loss = float('inf')
+    epochs_no_improve = 0
     
     for epoch in range(epochs):
         epoch_loss = 0.0
@@ -36,24 +40,35 @@ def train(model, epochs, optimizer, scheduler, lambda_, pdf_std, data_loader, de
             optimizer.step()
 
             epoch_loss += loss.item() * inputs.size(0)
-        scheduler.step()
+        scheduler.step()   
         
-        # Save the loss
-        losses_train += [epoch_loss/len(data_loader)]    
-
+        # Average loss for this epoch
+        avg_epoch_loss = epoch_loss / len(data_loader)
+        losses_train.append(avg_epoch_loss)
+        
         # Print epoch statistics
-        print('{} Epoch {}, Training loss {}'.format(datetime.datetime.now(), epoch, epoch_loss/len(data_loader)))
+        print('{} Epoch {}, Training loss {}'.format(datetime.datetime.now(), epoch, avg_epoch_loss))
+        
+        # Early stopping check
+        if avg_epoch_loss < best_loss:
+            best_loss = avg_epoch_loss
+            epochs_no_improve = 0
+        else:
+            epochs_no_improve += 1
+
+        if epochs_no_improve == early_stopping_rounds:
+            print('Early stopping triggered after epoch {}'.format(epoch))
+            break
+        
     return losses_train
 
 def main():
     batch_size = 16
     epochs = 30
-    M = 10000
-    
     pdf_std=1.0
     
     # Define the loss weights
-    lambda_ = [0.01, 0.05, 0.1, 0.5, 1, 2, 4, 6, 8, 10]
+    lambda_ = [0.01, 0.05, 0.1, 0.5, 1, 2, 4, 8, 16]
     
     data_loader = DataLoader(datasets.MNIST('../data/mnist',
                                              train=True,
@@ -63,25 +78,25 @@ def main():
                               shuffle=True)
     
     for idx, l_ in enumerate(lambda_):
-        quantizer = MNIST_Coder()    # Initialize the model
+        model = MNIST_Coder()    # Initialize the model
 
-        quantizer, device = device_manager(quantizer)
-        optimizer = optim.Adam(quantizer.parameters(), lr=0.01)
+        model, device = device_manager(model)
+        optimizer = optim.Adam(model.parameters(), lr=0.01)
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
         
-        losses_train = train(quantizer, epochs, optimizer, scheduler, l_, pdf_std, data_loader, device)
+        losses_train = train(model, epochs, optimizer, scheduler, l_, pdf_std, data_loader, device)
         
         # Plot loss curve
         plt.plot(losses_train)
         plt.xlabel('epochs')
         plt.ylabel('loss')
         plt.title('Loss Curve')
-        plot_path = f'../plots/quantizer_MNIST_{idx}.png'
+        plot_path = f'../plots/model_MNIST_{idx}.png'
         plt.savefig(plot_path)
         plt.close()
         
-        save_path = f'../params/quantizer_MNIST_params_{idx}.pth'
-        torch.save(quantizer.state_dict(), save_path)
+        save_path = f'../params/model_MNIST_params_{idx}.pth'
+        torch.save(model.state_dict(), save_path)
         print(f"Saved trained model to {save_path}")
     
 if __name__ == "__main__":
