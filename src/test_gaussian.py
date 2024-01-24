@@ -2,7 +2,7 @@ from model import Quantizer_Gaussian
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.stats import norm
+from utils import device_manager, calc_distortion, calc_rate, gen_gaussian_data
 
 def lloyd_max_quantization(data, n_levels, max_iter=100, tol=1e-5, verbose=False, save_dir="../output"):
     min_data, max_data = np.min(data), np.max(data)
@@ -42,7 +42,7 @@ def compare_quantizers(data, num_levels_list, num_runs=10):
 
     for n_levels in num_levels_list:
         lm_mse=0
-        trained_mse=0
+        trained_dist=0
         for _ in range(num_runs):
             # Lloyd-Max quantization
             # verbose = False if n_levels != 8 else True
@@ -62,54 +62,38 @@ def compare_quantizers(data, num_levels_list, num_runs=10):
 
             # Calculate MSE
             lm_mse += np.mean((data_np - lm_quantized_data) ** 2)
-            trained_mse += np.mean((data_np - trained_output) ** 2)
+            trained_dist += np.mean((data_np - trained_output) ** 2)
             
             # Calculate Rate
-            lm_rate+=rate(lm_quantized_data)
-            trained_mse+=rate(trained_quantized_data)
+            lm_rate+=calc_rate(lm_quantized_data)
+            trained_dist+=calc_rate(trained_quantized_data)
             
-        print(f"Levels: {n_levels} | Lloyd-Max Distortion: {lm_mse/float(num_runs):.4f} | Trained Distortion: {trained_mse/float(num_runs):.4f}")
-  
-# Rate Function
-def calc_rate(quantized_values, std=1.0):
-    # Define the normal distribution with mean 0 and given standard deviation
-    normal_dist = norm(loc=0, scale=std)
+        print(f"Levels: {n_levels} | Lloyd-Max Distortion: {lm_mse/float(num_runs):.4f} | Trained Distortion: {trained_dist/float(num_runs):.4f}")
 
-    # Calculating negative log-likelihood as a proxy for rate
-    nll = -normal_dist.logpdf(quantized_values)
+##################################################################################################################
+
+def calc_rate_distortion(model, data, device, num_runs=10):
+    model.eval()
     
-    return np.mean(nll)
-    
-def plot_rate_distortion(data, lambda_, num_runs=10):
-    data_np = data.numpy() if isinstance(data, torch.Tensor) else data  # Convert to NumPy array if needed
-    rates_model= []
-    distortions_model = []
-    for l_ in lambda_:
-        trained_mse=0
-        trained_rate=0
-        for i in range(num_runs):
-            # Load the trained Quantizer model
-            quantizer = Quantizer_Gaussian(data)  # Assuming data is appropriate for initializing Quantizer
-            quantizer.load_state_dict(torch.load(f'../params/quantizer_gauss_params_{i}.pth'))
-            quantizer.eval()
-            
+    for _ in range(num_runs):
+        dist=0
+        rate=0
+        for batch in data:
+            inputs = batch[0].to(device) 
             # Quantize data using the trained model
             with torch.no_grad():
-                trained_output, compressed_data = quantizer(data)
-            
-            trained_quantized_data = compressed_data.detach().numpy()  # Convert to NumPy array for MSE calculation
+                trained_output, compressed_data = model(inputs)
 
             # Calculate distortion and rate
-            trained_mse += np.mean((data_np - trained_output) ** 2)
-            trained_mse += calc_rate(trained_quantized_data)
-        
-        avg_rate = trained_rate/float(num_runs)
-        avg_distortion = trained_mse/float(num_runs)
-        rates_model.append(avg_rate)
-        distortions_model.append(avg_distortion)
+            dist += calc_distortion(inputs, trained_output)
+            rate += calc_rate(compressed_data)
             
-        print(f"Lambda: {l_} | Trained Rate: {avg_rate:.4f} | Trained Distortion: {avg_distortion:.4f}")    
+    avg_rate = rate/float(num_runs*len(data))
+    avg_distortion = dist/float(num_runs*len(data))
         
+    return avg_rate, avg_distortion
+    
+def plot_rate_disortion(distortions_model, rates_model):
     # Plotting
     plt.figure(figsize=(10, 5))
     plt.subplot(1, 2, 1)
@@ -129,14 +113,28 @@ def plot_rate_distortion(data, lambda_, num_runs=10):
     plt.tight_layout()
     plt.savefig('../plots/rate_distortion_gauss.png')
     plt.show()
-    
+
 # Compare the quantizers
 def main():
     M = 10000
-    data = torch.randn(M, M)
+    data = gen_gaussian_data(M, 1, 16)
     lambda_ = [0.01, 0.05, 0.1, 0.5, 1, 2, 4, 6, 8, 10]
-    # compare_quantizers(data)
-    plot_rate_distortion(data, lambda_)
-
+    rates_model= []
+    distortions_model = []
+    quantizer = Quantizer_Gaussian(N_input=1, N_bottleneck=10, N_output=1)
+    quantizer, device = device_manager(quantizer)   
+    for i, l_ in enumerate(lambda_):
+        # Load the trained Quantizer model
+        quantizer.load_state_dict(torch.load(f'../params/quantizer_gauss_params_{i}.pth'))
+        quantizer.to(device)
+        
+        avg_rate, avg_distortion = calc_rate_distortion(quantizer, data, device)
+        print(f"Lambda: {l_} | Index: {i} | Trained Rate: {avg_rate:.4f} | Trained Distortion: {avg_distortion:.4f}")    
+        
+        rates_model.append(avg_rate)
+        distortions_model.append(avg_distortion)
+            
+    plot_rate_disortion(distortions_model.cpu(), rates_model.cpu())
+    
 if __name__ == "__main__":
     main()

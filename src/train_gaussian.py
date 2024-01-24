@@ -4,32 +4,32 @@ import torch
 import matplotlib.pyplot as plt
 from model import Quantizer_Gaussian
 from train_images import train
-from torchvision import transforms
 import torch.optim as optim
-from torch.utils.data import TensorDataset, DataLoader
 import torch
-from torch.distributions import Normal
-from utils import device_manager
+from utils import device_manager, calc_distortion, calc_rate, gen_gaussian_data
 import datetime
 
-def train(model, epochs, optimizer, scheduler, lambda_, pdf_std, data_loader, device):
+def train(model, epochs, optimizer, scheduler, lambda_, pdf_std, data_loader, device, early_stopping_rounds=5):
     print("training...")
     model.train()
     model.to(device)
     losses_train = []
-    dist_loss_fn = nn.MSELoss()
+    
+    # Early stopping
+    best_loss = float('inf')
+    epochs_no_improve = 0
     
     for epoch in range(epochs):
         epoch_loss = 0.0
         for batch in data_loader:
-            inputs = batch[0].to(device)
+            inputs = batch[0].to(device) 
             
             # Forward pass: compute the predicted outputs
             outputs, quantized = model(inputs)
             
             # Compute loss
-            dist_loss = dist_loss_fn(outputs, inputs)
-            rate_loss = rate_loss_fn(quantized, pdf_std)
+            dist_loss = calc_distortion(outputs, inputs)
+            rate_loss = calc_rate(quantized, pdf_std)
             loss = dist_loss + lambda_ * rate_loss
 
             # Backward pass and optimization
@@ -40,39 +40,28 @@ def train(model, epochs, optimizer, scheduler, lambda_, pdf_std, data_loader, de
             epoch_loss += loss.item() * inputs.size(0)
         scheduler.step()
 
-        # Save the loss
-        losses_train += [epoch_loss/len(data_loader)]    
-
+        # Average loss for this epoch
+        avg_epoch_loss = epoch_loss / len(data_loader)
+        losses_train.append(avg_epoch_loss)
+        
         # Print epoch statistics
-        print('{} Epoch {}, Training loss {}'.format(datetime.datetime.now(), epoch, epoch_loss/len(data_loader)))
+        print('{} Epoch {}, Training loss {}'.format(datetime.datetime.now(), epoch, avg_epoch_loss))
+        
+        # Early stopping check
+        if avg_epoch_loss < best_loss:
+            best_loss = avg_epoch_loss
+            epochs_no_improve = 0
+        else:
+            epochs_no_improve += 1
 
-def to_tensor(x):
-    if isinstance(x, torch.Tensor):
-        return x.clone().detach()
-    else:
-        return torch.tensor(x, dtype=torch.float32)
-
-# Rate Loss Function
-def rate_loss_fn(quantized_values, std=1.0):
-    normal_dist = Normal(0, std)
-    # Calculating negative log-likelihood as a proxy for rate
-    nll = -normal_dist.log_prob(quantized_values)
-    return torch.mean(nll)
-
-def gen_gaussian_data(x, y, batch_size):
-    data = torch.randn(x, y)
-    # Apply the transform and create a dataset
-    transform = transforms.Lambda(to_tensor)
-    tensor_data = transform(data)
-
-    # Create a TensorDataset and DataLoader
-    dataset = TensorDataset(tensor_data)
-    data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
-    return data_loader
+        if epochs_no_improve == early_stopping_rounds:
+            print('Early stopping triggered after epoch {}'.format(epoch))
+            break
+    return losses_train
 
 def main():
     batch_size = 10
-    epochs = 50
+    epochs = 30
     M = 10000
     pdf_std = 1.0
     
@@ -101,7 +90,6 @@ def main():
         save_path = f'../params/quantizer_gauss_params_{idx}.pth'
         torch.save(quantizer.state_dict(), save_path)
         print(f"Saved trained model to {save_path}")
-
 
 if __name__ == "__main__":
     # Call the main function with parsed arguments
