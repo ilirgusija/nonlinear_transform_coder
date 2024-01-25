@@ -118,7 +118,7 @@ def plot_rate_disortion(distortions_model, rates_model):
 def main():
     M = 10000
     data = gen_gaussian_data(M, 1, 16)
-    lambda_ = [0.01, 0.05, 0.1, 0.5, 1, 2, 4, 6, 8, 10]
+    lambda_ = [0.01, 0.05, 0.1, 0.5, 1, 2, 4, 8, 16]
     rates_model= []
     distortions_model = []
     quantizer = Quantizer_Gaussian(N_input=1, N_bottleneck=10, N_output=1)

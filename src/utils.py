@@ -26,7 +26,7 @@ def device_manager(model):
 
 def uniform_quantizer(x):
     # Define the range of input values
-    quantized_values = torch.round(x + 0.5)
+    quantized_values = torch.round(x)
     return quantized_values
 
 def calc_rate(quantized_values, std=1.0):

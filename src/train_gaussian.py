@@ -9,7 +9,7 @@ import torch
 from utils import device_manager, calc_distortion, calc_rate, gen_gaussian_data
 import datetime
 
-def train(model, epochs, optimizer, scheduler, lambda_, pdf_std, data_loader, device, early_stopping_rounds=5):
+def train(model, epochs, optimizer, scheduler, lambda_, pdf_std, data_loader, device, early_stopping_rounds=10):
     print("training...")
     model.train()
     model.to(device)
@@ -61,7 +61,7 @@ def train(model, epochs, optimizer, scheduler, lambda_, pdf_std, data_loader, de
 
 def main():
     batch_size = 10
-    epochs = 30
+    epochs = 100
     M = 10000
     pdf_std = 1.0
     
