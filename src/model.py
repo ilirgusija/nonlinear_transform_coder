@@ -54,18 +54,18 @@ class Quantizer_Gaussian(nn.Module):
         return output, quantized
 
 class MNIST_Coder(nn.Module):
-    def __init__(self, N_input=784, N_bottleneck=10, N_output=784, compression_method='zlib'):
+    def __init__(self, N_input=784, N_bottleneck=8, N_output=784, compression_method='zlib'):
         super(MNIST_Coder, self).__init__()
         self.delta = 1.0/2.0
         N2 = 392
         N3 = int(N2/2)
         
         self.fc1_e = nn.Linear(N_input, N2)
-        self.fc2_e = nn.Linear(N2, N3)
-        self.fc3_e = nn.Linear(N3, N_bottleneck)
+        self.fc2_e = nn.Linear(N2, N_bottleneck)
+        # self.fc3_e = nn.Linear(N3, N_bottleneck)
         
-        self.fc1_d = nn.Linear(N_bottleneck, N3)
-        self.fc2_d = nn.Linear(N3, N2)
+        # self.fc1_d = nn.Linear(N_bottleneck, N3)
+        self.fc2_d = nn.Linear(N_bottleneck, N2)
         self.fc3_d = nn.Linear(N2, N_output)
         
         self.compression_method = compression_method
@@ -74,14 +74,14 @@ class MNIST_Coder(nn.Module):
         X = self.fc1_e(X)
         X = F.relu(X)
         X = self.fc2_e(X)
-        X = F.relu(X)
-        X = self.fc3_e(X)
+        # X = F.relu(X)
+        # X = self.fc3_e(X)
         X = F.relu(X)
         return X
 
     def inverse_transform(self, X):
-        X = self.fc1_d(X)
-        X = F.relu(X)
+        # X = self.fc1_d(X)
+        # X = F.relu(X)
         X = self.fc2_d(X)
         X = F.relu(X)
         X = self.fc3_d(X)

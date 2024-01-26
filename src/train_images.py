@@ -64,7 +64,7 @@ def train(model, epochs, optimizer, scheduler, lambda_, pdf_std, data_loader, de
 
 def main():
     batch_size = 16
-    epochs = 30
+    epochs = 100
     pdf_std=1.0
     
     # Define the loss weights
@@ -81,7 +81,7 @@ def main():
         model = MNIST_Coder()    # Initialize the model
 
         model, device = device_manager(model)
-        optimizer = optim.Adam(model.parameters(), lr=0.01)
+        optimizer = optim.Adam(model.parameters(), lr=0.1)
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
         
         losses_train = train(model, epochs, optimizer, scheduler, l_, pdf_std, data_loader, device)
