@@ -2,104 +2,195 @@ import torch
 from torch import nn
 import numpy as np
 from torch.nn import functional as F
+import zlib
+import bz2
+import lzma
+import pickle
+from utils import uniform_quantizer
 
 class Quantizer_Gaussian(nn.Module):
-    
-    def __init__(self, n_levels, N_input=10000, N_bottleneck=10, N_output=10000):
+    def __init__(self, N_input=1, N_bottleneck=7, N_output=1):
         super(Quantizer_Gaussian, self).__init__()
-        self.n_levels=n_levels
-        self.delta=1.0/float(n_levels)
-        N2=1000
-        N3=100
-        self.fc1 = nn.Linear(N_input, N2)
-        self.fc2 = nn.Linear(N2, N3)
-        self.fc3 = nn.Linear(N3, N_bottleneck)
-        
-        self.fc4 = nn.Linear(N_bottleneck,N3)
-        self.fc5 = nn.Linear(N3, N2)
-        self.fc6 = nn.Linear(N2, N_output)
-        
-    def uniform_quantizer(self, x):
-        # Define the range of input values
-        quantized_values = torch.round((x) / self.delta) * self.delta
-        return quantized_values
-    
+        self.delta = 1.0/2.0
+        N2 = 3
+        N3 = 5
+        # N2 = int(N_input/2)
+        # N3= int(N2/2)
+        self.fc1_e = nn.Linear(N_input, N2)
+        self.fc2_e = nn.Linear(N2, N3)
+        self.fc3_e = nn.Linear(N3, N_bottleneck)
+
+        self.fc1_d = nn.Linear(N_bottleneck, N3)
+        self.fc2_d = nn.Linear(N3, N2)
+        self.fc3_d = nn.Linear(N2, N_output)
+
     def transform(self, X):
-        X = self.fc1(X)
+        X = self.fc1_e(X)
         X = F.relu(X)
-        X = self.fc2(X)
+        X = self.fc2_e(X)
         X = F.relu(X)
-        X = self.fc3(X)
-        X = F.sigmoid(X)
+        X = self.fc3_e(X)
+        X = F.relu(X)
         return X
 
     def inverse_transform(self, X):
-        X = self.fc4(X)
+        X = self.fc1_d(X)
         X = F.relu(X)
-        X = self.fc5(X)
+        X = self.fc2_d(X)
         X = F.relu(X)
-        X = self.fc6(X)
+        X = self.fc3_d(X)
         return X
 
     def forward(self, X):
         # Encode then decode the input
         features = self.transform(X)
         if self.training:
-            noise = (torch.rand_like(features) - 0.5) * self.delta
-            features = features + noise 
-            quantized = self.inverse_transform(features)
+            noise = torch.rand_like(features) - 0.5
+            quantized = features + noise
+            output = self.inverse_transform(quantized)
         else:
-            quantized = self.uniform_quantizer(features)
-        return quantized
-    
-    
-# TODO: Implement a model that handles MNIST samples (this will be first step to eventually training on XRAYs)
-class Quantizer_Images(nn.Module):
-    
-    def __init__(self, data, n_levels, N_input=1, N_bottleneck=10, N_output=1):
-        super(Quantizer_Gaussian, self).__init__()
-        self.n_levels=n_levels
-        self.delta=calculate_delta(data, n_levels)
-        # N2=100
-        N2=50
-        N3=25
-        self.fc1 = nn.Linear(N_input, N2)
-        # self.fc2 = nn.Linear(N2, N2)
-        self.fc3 = nn.Linear(N2, N3)
-        self.fc4 = nn.Linear(N3, N_bottleneck)
+            quantized = uniform_quantizer(features)
+            output = self.inverse_transform(quantized)
+        return output, quantized
+
+class MNIST_Coder(nn.Module):
+    def __init__(self, N_input=784, N_bottleneck=8, N_output=784, compression_method='zlib'):
+        super(MNIST_Coder, self).__init__()
+        self.delta = 1.0/2.0
+        N2 = 392
+        N3 = int(N2/2)
         
-        self.fc5 = nn.Linear(N_bottleneck,N3)
-        self.fc6 = nn.Linear(N3, N2)
-        # self.fc7 = nn.Linear(N2, N2)
-        self.fc8 = nn.Linear(N2, N_output)
-        # self.input_type = (1, 28*28)
+        self.fc1_e = nn.Linear(N_input, N2)
+        self.fc2_e = nn.Linear(N2, N_bottleneck)
+        # self.fc3_e = nn.Linear(N3, N_bottleneck)
         
+        # self.fc1_d = nn.Linear(N_bottleneck, N3)
+        self.fc2_d = nn.Linear(N_bottleneck, N2)
+        self.fc3_d = nn.Linear(N2, N_output)
+        
+        self.compression_method = compression_method
+
     def transform(self, X):
-        X = self.fc1(X)
+        X = self.fc1_e(X)
         X = F.relu(X)
-        # X = self.fc2(X)
+        X = self.fc2_e(X)
         # X = F.relu(X)
-        X = self.fc3(X)
+        # X = self.fc3_e(X)
         X = F.relu(X)
-        X = self.fc4(X)
-        X = F.sigmoid(X)
         return X
 
     def inverse_transform(self, X):
-        X = self.fc5(X)
-        X = F.relu(X)
-        X = self.fc6(X)
-        X = F.relu(X)
-        # X = self.fc7(X)
+        # X = self.fc1_d(X)
         # X = F.relu(X)
-        X = self.fc8(X)
-        # X = F.relu(X)
+        X = self.fc2_d(X)
+        X = F.relu(X)
+        X = self.fc3_d(X)
+        X = F.sigmoid(X)
         return X
+    
+    def encode(self, data):
+        # Serialize the quantized data from Tensor to a format that our encoder can handle
+        data = pickle.dumps(data)
+        
+        if self.compression_method == 'zlib':
+            return zlib.compress(data)
+        elif self.compression_method == 'bz2':
+            return bz2.compress(data)
+        elif self.compression_method == 'lzma':
+            return lzma.compress(data)
+        else:
+            raise ValueError("Unsupported compression method")
+
+    def decode(self, data):
+        if self.compression_method == 'zlib':
+            data = zlib.decompress(data)
+        elif self.compression_method == 'bz2':
+            data = bz2.decompress(data)
+        elif self.compression_method == 'lzma':
+            data = lzma.decompress(data)
+        else:
+            raise ValueError("Unsupported decompression method")
+        
+        # Deserialize the output of our quantizer
+        data = pickle.loads(data)
+        return data
+    
+    def compress(self, X):
+        # Run the neural network
+        features = self.transform(X)
+        
+        # Quantize our features
+        quantized = uniform_quantizer(features)
+        
+        # Losslessly code using the method defined at initialization
+        encoded = self.encode(quantized)
+        return encoded
+
+    def decompress(self, X):
+        # Run the decoder on our compressed file
+        decoded = self.decode(X)
+        
+        # Run neural network
+        output = self.inverse_transform(decoded)
+        
+        return output
+
+    # def forward(self, X):
+    #     output = self.inverse_transform(self.transform(X))
+    #     quantized = []
+    #     return output, quantized
 
     def forward(self, X):
-        # Encode then decode the input
         features = self.transform(X)
-        noise = (torch.rand_like(features) - 0.5) * self.delta
-        noisy_features = features + noise 
-        quantized = self.inverse_transform(noisy_features)
-        return quantized
+        if self.training:
+            noise = torch.rand_like(features) - 0.5
+            quantized = features + noise
+            output = self.inverse_transform(quantized)
+        else:
+            quantized = uniform_quantizer(features)
+            output = self.inverse_transform(quantized)
+        return output, quantized
+
+class MNIST_VAE(nn.Module):
+    def __init__(self):
+        super(MNIST_VAE, self).__init__()
+        
+        # Encoder
+        self.encoder = nn.Sequential(
+            nn.Conv2d(1, 16, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(),
+            nn.Flatten(),
+            nn.Linear(32 * 7 * 7, 128),
+            nn.ReLU(),
+        )
+
+        # Latent space
+        self.fc_mu = nn.Linear(128, 20)
+        self.fc_logvar = nn.Linear(128, 20)
+
+        # Decoder
+        self.decoder = nn.Sequential(
+            nn.Linear(20, 128),
+            nn.ReLU(),
+            nn.Linear(128, 32 * 7 * 7),
+            nn.ReLU(),
+            nn.Unflatten(1, (32, 7, 7)),
+            nn.ConvTranspose2d(32, 16, kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.ReLU(),
+            nn.ConvTranspose2d(16, 1, kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.Tanh()
+        )
+
+    def reparameterize(self, mu, logvar):
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(std)
+        return mu + eps * std
+
+    def forward(self, x):
+        x = self.encoder(x)
+        mu = self.fc_mu(x)
+        logvar = self.fc_logvar(x)
+        z = self.reparameterize(mu, logvar)
+        return self.decoder(z), mu, logvar
