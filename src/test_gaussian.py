@@ -2,7 +2,7 @@ from model import Quantizer_Gaussian
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-from utils import device_manager, calc_distortion, calc_rate, gen_gaussian_data
+from utils import device_manager, calc_distortion, gen_gaussian_data, calc_empirical_rate
 
 def lloyd_max_quantization(data, n_levels, max_iter=100, tol=1e-5, verbose=False, save_dir="../output"):
     min_data, max_data = np.min(data), np.max(data)
@@ -86,7 +86,7 @@ def calc_rate_distortion(model, data, device, num_runs=10):
 
             # Calculate distortion and rate
             dist += calc_distortion(inputs, trained_output)
-            rate += calc_rate(compressed_data)
+            rate += calc_empirical_rate(compressed_data)
             
     avg_rate = rate/float(num_runs*len(data))
     avg_distortion = dist/float(num_runs*len(data))

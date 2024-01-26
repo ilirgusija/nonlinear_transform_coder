@@ -29,7 +29,25 @@ def uniform_quantizer(x):
     quantized_values = torch.round(x)
     return quantized_values
 
-def calc_rate(quantized_values, std=1.0):
+def calc_empirical_pmf(X):
+    # Flatten the tensor to a 1D array for simplicity
+    flattened = X.flatten()
+
+    # Get unique values and their counts
+    unique_values, counts = torch.unique(flattened, return_counts=True)
+
+    # Calculate probabilities
+    probabilities = counts.float() / flattened.numel()
+
+    return probabilities
+
+def calc_empirical_rate(X):
+    probabilities = calc_empirical_pmf(X)
+    # Calculate the entropy
+    entropy = -torch.sum(probabilities * torch.log2(probabilities))
+    return entropy
+
+def calc_normal_rate(quantized_values, std=1.0):
     normal_dist = Normal(0, std)
     # Calculating negative log-likelihood as a proxy for rate
     nll = -normal_dist.log_prob(quantized_values)
