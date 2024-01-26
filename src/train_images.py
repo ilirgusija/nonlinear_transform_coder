@@ -7,9 +7,9 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 import torch
 import datetime
-from utils import device_manager, calc_distortion, calc_rate
+from utils import device_manager, calc_distortion, calc_normal_rate, compute_loss
 
-def train(model, epochs, optimizer, scheduler, lambda_, pdf_std, data_loader, device, early_stopping_rounds=10):
+def train(model, epochs, optimizer, scheduler, loss_fn, data_loader, device, early_stopping_rounds=10):
     print('training ...')
     model.train()  # Set the model to training mode
     model.to(device)
@@ -21,7 +21,6 @@ def train(model, epochs, optimizer, scheduler, lambda_, pdf_std, data_loader, de
     
     for epoch in range(epochs):
         epoch_loss = 0.0
-
         for imgs, _ in data_loader:
             imgs = imgs.view(imgs.size(0), -1) # Flatten the imgs
             inputs = imgs.to(device)
@@ -30,16 +29,14 @@ def train(model, epochs, optimizer, scheduler, lambda_, pdf_std, data_loader, de
             outputs, quantized = model(inputs)
             
             # Compute loss
-            dist_loss = calc_distortion(outputs, inputs)
-            rate_loss = calc_rate(quantized, pdf_std)
-            loss = dist_loss + lambda_ * rate_loss
+            loss = compute_loss(loss_fn, inputs, outputs, quantized)
 
             # Backward pass and optimization
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
-            epoch_loss += loss.item() * inputs.size(0)
+            epoch_loss += loss.item()
         scheduler.step()   
         
         # Average loss for this epoch
@@ -63,12 +60,12 @@ def train(model, epochs, optimizer, scheduler, lambda_, pdf_std, data_loader, de
     return losses_train
 
 def main():
-    batch_size = 16
-    epochs = 100
-    pdf_std=1.0
+    batch_size = 128
+    epochs = 50
     
     # Define the loss weights
-    lambda_ = [0.01, 0.05, 0.1, 0.5, 1, 2, 4, 8, 16]
+    lambda_ = [0.001, 0.01, 0.05, 0.1, 0.5, 1, 2, 4, 8]
+    # lambda_ = [0.001]
     
     data_loader = DataLoader(datasets.MNIST('../data/mnist',
                                              train=True,
@@ -81,21 +78,24 @@ def main():
         model = MNIST_Coder()    # Initialize the model
 
         model, device = device_manager(model)
-        optimizer = optim.Adam(model.parameters(), lr=0.1)
-        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
+        optimizer = optim.Adam(model.parameters(), lr=0.001)
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
         
-        losses_train = train(model, epochs, optimizer, scheduler, l_, pdf_std, data_loader, device)
+        loss_fn = lambda img, out, q: (calc_distortion(img, out) + l_*calc_normal_rate(q))
+        # loss_fn = nn.MSELoss()
+        
+        losses_train = train(model, epochs, optimizer, scheduler, loss_fn, data_loader, device)
         
         # Plot loss curve
         plt.plot(losses_train)
         plt.xlabel('epochs')
         plt.ylabel('loss')
         plt.title('Loss Curve')
-        plot_path = f'../plots/model_MNIST_{idx}.png'
+        plot_path = f'../plots/model_MNIST_{l_}.png'
         plt.savefig(plot_path)
         plt.close()
         
-        save_path = f'../params/model_MNIST_params_{idx}.pth'
+        save_path = f'../params/model_MNIST_params_{l_}.pth'
         torch.save(model.state_dict(), save_path)
         print(f"Saved trained model to {save_path}")
     

@@ -3,6 +3,24 @@ import torch.nn as nn
 from torch.distributions import Normal
 from torch.utils.data import TensorDataset, DataLoader
 from torchvision import transforms
+import inspect
+
+# Compute the loss
+
+def compute_loss(loss_fn, img, out, q):
+    # Get the argument count of the loss function
+    if callable(loss_fn):
+        loss_fn_args = inspect.signature(loss_fn).parameters
+        if len(loss_fn_args) == 3:
+            # Custom lambda loss function
+            return loss_fn(img, out, q)
+        elif len(loss_fn_args) == 2:
+            # Standard loss function like nn.MSELoss
+            return loss_fn(img, out)
+        else:
+            raise ValueError("Unsupported loss function signature")
+    else:
+        raise TypeError("loss_fn is not a callable function")
 
 def device_manager(model):
     # Setup for DataParallel
@@ -22,7 +40,7 @@ def device_manager(model):
     else:
         device = torch.device("cpu")
         print("Using CPU.")
-    return model, device
+    return model.to(device), device
 
 def uniform_quantizer(x):
     # Define the range of input values

@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from model import MNIST_Coder
 from torchvision import transforms, datasets
 from torchvision.io import encode_jpeg, decode_jpeg
-from utils import device_manager, calc_distortion, calc_rate
+from utils import device_manager, calc_distortion, calc_empirical_rate
 from torch.utils.data import DataLoader
 
 # Generate the Rate Distortion graph for JPEG based on quality
@@ -22,7 +22,7 @@ def run_jpeg(img_batch, quality=85):
     decoded_img_batch = decode_jpeg(jpeg_buffer_batch)
 
     distortion = calc_distortion(decoded_img_batch, img_batch)
-    rate = calc_rate(jpeg_buffer_batch)
+    rate = calc_empirical_rate(jpeg_buffer_batch)
 
     return distortion, rate
 
@@ -43,7 +43,7 @@ def run_model(model, img_batch):
 
     # Calculate distortion (MSE)
     distortion = calc_distortion(img_batch, output)
-    rate = calc_rate(quantized)
+    rate = calc_empirical_rate(quantized)
 
     return distortion, rate
 
@@ -73,37 +73,84 @@ def plot_rate_distortion(d_model=None, r_model=None, d_jpeg=None, r_jpeg=None):
     plt.savefig('../plots/rate_distortion_comparison.png')
     plt.show()
 
+def run_qualitative_test(model, test_loader, lambda_, device):
+    for l_ in lambda_:
+        
+        img, _ = test_loader.dataset[0]
+        
+        # Flatten and convert the image to a batch for the model)
+        img_batch = img.unsqueeze(0).view(1, -1).to(device) # Flatten the imgs
+        
+        # Run the model
+        with torch.no_grad():
+            model.load_state_dict(torch.load(f"../params/model_MNIST_params_{l_}.pth", map_location=device))
+            model.eval()
+            output_batch, _ = model(img_batch)
+            distortion = calc_distortion(img_batch, output_batch)
+        
+        # Unflatten the input and output to visualize it as an image
+        img = img.squeeze().numpy()
+        output_img = output_batch.view(1, 28, 28).squeeze().cpu().numpy()
+        
+        f = plt.figure() 
+        f.add_subplot(1,2,1) 
+        plt.imshow(img, cmap='gray') 
+        f.add_subplot(1,2,2) 
+        plt.imshow(output_img, cmap='gray') 
+        plt.show() 
+
 # Compare the rate-distortion of the model and JPEG
-def run_test(model, test_loader, device, compare=False):
+def run_test(model, test_loader, lambda_, device, compare=False):
     d_jpeg = None
-    d_model = None
+    r_jpeg = None
     if compare:
         d_jpeg = []
-        d_model = []
-    r_jpeg = []
+        r_jpeg = []
+    d_model = []
     r_model = []
-
-    for img, _ in test_loader:
-        img = img.to(device)
+    for l_ in lambda_:
+        model.load_state_dict(torch.load(f"../params/model_MNIST_params_{l_}.pth", map_location=device))
+        model.eval()
+        running_r_jpeg=0
+        running_d_jpeg=0
+        running_r_model=0
+        running_d_model=0
+        
+        for img, _ in test_loader:
+            img = img.to(device)
+            if compare:
+                distortion_jpeg, rate_jpeg = run_jpeg(img)
+                running_r_jpeg+=rate_jpeg
+                running_d_jpeg+=distortion_jpeg
+            with torch.no_grad():   
+                distortion_model, rate_model = run_model(model, img)
+                running_r_model+=rate_model
+                running_d_model+=distortion_model
+        
         if compare:
-            distortion_jpeg, bit_rate_jpeg = run_jpeg(img)
-            d_jpeg.append(distortion_jpeg)
-            d_model.append(distortion_model)
-        with torch.no_grad():   
-            distortion_model, bit_rate_model = run_model(model, img)
-        r_jpeg.append(bit_rate_jpeg)
-        r_model.append(bit_rate_model)
+            j_avg_rate = running_r_jpeg/len(test_loader)
+            j_avg_distortion = running_d_jpeg/len(test_loader)
+            print(f"JPEG: Rate: {j_avg_rate}, Distortion: {j_avg_distortion}")
+            r_jpeg.append(j_avg_rate)
+            d_jpeg.append(j_avg_distortion)
+            
+        r_avg_rate = running_r_model/len(test_loader)
+        r_avg_distortion = running_d_model/len(test_loader)
+        print(f"Model: Rate: {r_avg_rate}, Distortion: {r_avg_distortion}")
+        
+        r_model.append(r_avg_rate.cpu().detach().numpy())
+        d_model.append(r_avg_distortion.cpu().detach().numpy())
+        
         
     plot_rate_distortion(d_model=d_model, r_model=r_model, d_jpeg=d_jpeg, r_jpeg=r_jpeg)
 
+# Main function
 def main():
-    param_path = "../params/quantizer_MNIST_params_0.pth"
     model = MNIST_Coder()
     model, device = device_manager(model)
-    model.load_state_dict(torch.load(param_path, map_location=device))
-    model.eval()
     
-    batch_size = 16
+    lambda_ = [0.001, 0.01, 0.05, 0.1, 0.5, 1, 2, 4, 8]
+    batch_size = 256
     test_loader = DataLoader(datasets.MNIST('../data/mnist',
                                             train=False,
                                             download=False,
@@ -111,7 +158,8 @@ def main():
                             batch_size=batch_size,
                             shuffle=False)
     
-    run_test(model, test_loader, device)
+    run_test(model, test_loader, lambda_, device)
+    # run_qualitative_test(model, test_loader, lambda_, device)
 
 if __name__ == "__main__":
     main()

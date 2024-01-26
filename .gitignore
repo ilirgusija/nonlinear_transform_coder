@@ -3,4 +3,4 @@ node_modules
 data/mnist/*
 tmp/*
 params/*
-plots/*
+!params/model_MNIST_params_0.1.pth

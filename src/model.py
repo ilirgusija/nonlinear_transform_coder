@@ -135,6 +135,11 @@ class MNIST_Coder(nn.Module):
         
         return output
 
+    # def forward(self, X):
+    #     output = self.inverse_transform(self.transform(X))
+    #     quantized = []
+    #     return output, quantized
+
     def forward(self, X):
         features = self.transform(X)
         if self.training:
@@ -145,3 +150,47 @@ class MNIST_Coder(nn.Module):
             quantized = uniform_quantizer(features)
             output = self.inverse_transform(quantized)
         return output, quantized
+
+class MNIST_VAE(nn.Module):
+    def __init__(self):
+        super(MNIST_VAE, self).__init__()
+        
+        # Encoder
+        self.encoder = nn.Sequential(
+            nn.Conv2d(1, 16, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(),
+            nn.Flatten(),
+            nn.Linear(32 * 7 * 7, 128),
+            nn.ReLU(),
+        )
+
+        # Latent space
+        self.fc_mu = nn.Linear(128, 20)
+        self.fc_logvar = nn.Linear(128, 20)
+
+        # Decoder
+        self.decoder = nn.Sequential(
+            nn.Linear(20, 128),
+            nn.ReLU(),
+            nn.Linear(128, 32 * 7 * 7),
+            nn.ReLU(),
+            nn.Unflatten(1, (32, 7, 7)),
+            nn.ConvTranspose2d(32, 16, kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.ReLU(),
+            nn.ConvTranspose2d(16, 1, kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.Tanh()
+        )
+
+    def reparameterize(self, mu, logvar):
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(std)
+        return mu + eps * std
+
+    def forward(self, x):
+        x = self.encoder(x)
+        mu = self.fc_mu(x)
+        logvar = self.fc_logvar(x)
+        z = self.reparameterize(mu, logvar)
+        return self.decoder(z), mu, logvar
