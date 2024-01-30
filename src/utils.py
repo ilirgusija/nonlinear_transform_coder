@@ -5,8 +5,6 @@ from torch.utils.data import TensorDataset, DataLoader
 from torchvision import transforms
 import inspect
 
-# Compute the loss
-
 def compute_loss(loss_fn, img, out, q):
     # Get the argument count of the loss function
     if callable(loss_fn):
