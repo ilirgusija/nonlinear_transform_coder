@@ -1,17 +1,17 @@
-import argparse
 import torch.nn as nn
 import torch
 import matplotlib.pyplot as plt
-from model import Quantizer_Gaussian
-from train_images import train
+from model import MNIST_FCNN
+from torchvision import transforms, datasets
 import torch.optim as optim
+from torch.utils.data import DataLoader
 import torch
-from utils import device_manager, calc_distortion, calc_rate, gen_gaussian_data
 import datetime
+from utils import device_manager, calc_distortion, calc_normal_rate, compute_loss
 
-def train(model, epochs, optimizer, scheduler, lambda_, pdf_std, data_loader, device, early_stopping_rounds=10):
-    print("training...")
-    model.train()
+def train(model, epochs, optimizer, scheduler, loss_fn, data_loader, device, early_stopping_rounds=3):
+    print('training ...')
+    model.train()  # Set the model to training mode
     model.to(device)
     losses_train = []
     
@@ -21,25 +21,23 @@ def train(model, epochs, optimizer, scheduler, lambda_, pdf_std, data_loader, de
     
     for epoch in range(epochs):
         epoch_loss = 0.0
-        for batch in data_loader:
-            inputs = batch[0].to(device) 
+        for imgs, _ in data_loader:
+            inputs = imgs.to(device)
             
             # Forward pass: compute the predicted outputs
             outputs, quantized = model(inputs)
             
             # Compute loss
-            dist_loss = calc_distortion(outputs, inputs)
-            rate_loss = calc_rate(quantized, pdf_std)
-            loss = dist_loss + lambda_ * rate_loss
+            loss = compute_loss(loss_fn, inputs, outputs, quantized)
 
             # Backward pass and optimization
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
-            epoch_loss += loss.item() * inputs.size(0)
-        scheduler.step()
-
+            epoch_loss += loss.item()
+        scheduler.step()   
+        
         # Average loss for this epoch
         avg_epoch_loss = epoch_loss / len(data_loader)
         losses_train.append(avg_epoch_loss)
@@ -57,40 +55,49 @@ def train(model, epochs, optimizer, scheduler, lambda_, pdf_std, data_loader, de
         if epochs_no_improve == early_stopping_rounds:
             print('Early stopping triggered after epoch {}'.format(epoch))
             break
+        
     return losses_train
 
 def main():
-    batch_size = 10
-    epochs = 100
-    M = 10000
-    pdf_std = 1.0
+    batch_size = 128
+    epochs = 50
     
-    data_loader = gen_gaussian_data(M, 1, batch_size)
+    # Define the loss weights
+    lambda_ = [0.01, 0.05, 0.1, 0.5, 1, 2, 4, 8]
+    # lambda_ = [0.001]
     
-    # Define the loss weight
-    lambda_ = [0.01, 0.05, 0.1, 0.5, 1, 2, 4, 6, 8, 10]
+    data_loader = DataLoader(datasets.MNIST('../data/mnist',
+                                             train=True,
+                                             download=True,
+                                             transform=transforms.Compose([transforms.ToTensor()])),
+                              batch_size=batch_size,
+                              shuffle=True)
+    
     for idx, l_ in enumerate(lambda_):
-        quantizer = Quantizer_Gaussian(N_input=1, N_bottleneck=10, N_output=1)    # Initialize the model
-        quantizer, device = device_manager(quantizer) # Move model to necessary device and return the device type
-        
-        # Define the optimizer and scheduler
-        optimizer = optim.Adam(quantizer.parameters(), lr=0.01)
+        model = MNIST_FCNN()    # Initialize the model
+
+        model, device = device_manager(model)
+        optimizer = optim.Adam(model.parameters(), lr=0.001)
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
         
-        losses_train = train(quantizer, epochs, optimizer, scheduler, l_, pdf_std, data_loader, device)
+        loss_fn = lambda img, out, q: (calc_distortion(img, out) + l_*calc_normal_rate(q))
+        # loss_fn = nn.MSELoss()
+        
+        losses_train = train(model, epochs, optimizer, scheduler, loss_fn, data_loader, device)
         
         # Plot loss curve
         plt.plot(losses_train)
         plt.xlabel('epochs')
         plt.ylabel('loss')
         plt.title('Loss Curve')
-        plot_path = f'../plots/quantizer_gauss_{idx}.png'
+        plot_path = f'../plots/fcnn_loss_{l_}.png'
         plt.savefig(plot_path)
         plt.close()
-        save_path = f'../params/quantizer_gauss_params_{idx}.pth'
-        torch.save(quantizer.state_dict(), save_path)
+        
+        save_path = f'../params/fcnn_params_{l_}.pth'
+        torch.save(model.state_dict(), save_path)
         print(f"Saved trained model to {save_path}")
-
+    
 if __name__ == "__main__":
     # Call the main function with parsed arguments
     main()

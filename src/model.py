@@ -56,7 +56,6 @@ class Quantizer_Gaussian(nn.Module):
 class MNIST_Coder(nn.Module):
     def __init__(self, N_input=784, N_bottleneck=8, N_output=784, compression_method='zlib'):
         super(MNIST_Coder, self).__init__()
-        self.delta = 1.0/2.0
         N2 = 392
         N3 = int(N2/2)
         
@@ -135,10 +134,37 @@ class MNIST_Coder(nn.Module):
         
         return output
 
-    # def forward(self, X):
-    #     output = self.inverse_transform(self.transform(X))
-    #     quantized = []
-    #     return output, quantized
+    def forward(self, X):
+        features = self.transform(X)
+        if self.training:
+            noise = torch.rand_like(features) - 0.5
+            quantized = features + noise
+            output = self.inverse_transform(quantized)
+        else:
+            quantized = uniform_quantizer(features)
+            output = self.inverse_transform(quantized)
+        return output, quantized
+
+class MNIST_FCNN(nn.Module):
+    def __init__(self):
+        super(MNIST_FCNN, self).__init__()
+        # Encoder layers
+        self.transform = nn.Sequential(
+            nn.Conv2d(1, 16, 3, stride=2, padding=1),  # Output: (16, 14, 14)
+            nn.ReLU(),
+            nn.Conv2d(16, 32, 3, stride=2, padding=1), # Output: (32, 7, 7)
+            nn.ReLU(),
+            nn.Conv2d(32, 64, 7)                      # Output: (64, 1, 1)
+        )
+        # Decoder layers
+        self.inverse_transform = nn.Sequential(
+            nn.ConvTranspose2d(64, 32, 7),            # Output: (32, 7, 7)
+            nn.ReLU(),
+            nn.ConvTranspose2d(32, 16, 3, stride=2, padding=1, output_padding=1), # Output: (16, 14, 14)
+            nn.ReLU(),
+            nn.ConvTranspose2d(16, 1, 3, stride=2, padding=1, output_padding=1),  # Output: (1, 28, 28)
+            nn.Sigmoid()  # Using sigmoid for output to get values between 0 and 1
+        )
 
     def forward(self, X):
         features = self.transform(X)
@@ -150,6 +176,7 @@ class MNIST_Coder(nn.Module):
             quantized = uniform_quantizer(features)
             output = self.inverse_transform(quantized)
         return output, quantized
+
 
 class MNIST_VAE(nn.Module):
     def __init__(self):
