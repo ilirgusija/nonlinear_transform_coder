@@ -59,13 +59,12 @@ def train(model, epochs, optimizer, scheduler, loss_fn, data_loader, device, ear
     return losses_train
 
 def main():
-    batch_size = 128
+    batch_size = 1024
     epochs = 50
     
     # Define the loss weights
-    lambda_ = [0.01, 0.05, 0.1, 0.5, 1, 2, 4, 8]
-    # lambda_ = [0.001]
-    
+    lambda_ = [0.00001, 0.0001, 0.001, 0.01, 0.05, 0.1, 0.5, 1, 2, 4, 8]
+
     data_loader = DataLoader(datasets.MNIST('../data/mnist',
                                              train=True,
                                              download=True,
