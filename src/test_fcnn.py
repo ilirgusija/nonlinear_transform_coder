@@ -36,8 +36,7 @@ def run_jpeg(img_batch, device, quality=85):
         img = (img_batch[idx] * 255).to(torch.uint8)  # Convert each image in the batch
         jpeg_buffer = encode_jpeg(img, quality=quality)
         decoded_img = decode_jpeg(jpeg_buffer).to(device)
-        print(jpeg_buffer)
-        sys.exit()
+
         # Ensure decoded_img and original img are in the same dtype and range for comparison
         decoded_img = decoded_img.float() / 255
         
