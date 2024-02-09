@@ -34,7 +34,7 @@ def device_manager(model):
         
         # Wrap models with DataParallel if more than one GPU is available
         if num_gpus > 1:
-            quantizer = nn.DataParallel(quantizer)
+            model = nn.DataParallel(model)
     else:
         device = torch.device("cpu")
         print("Using CPU.")
@@ -51,10 +51,10 @@ def calc_empirical_pmf(X):
 
     # Get unique values and their counts
     unique_values, counts = torch.unique(flattened, return_counts=True)
-
+    
     # Calculate probabilities
     probabilities = counts.float() / flattened.numel()
-
+    
     return probabilities
 
 def calc_empirical_rate(X):
@@ -63,6 +63,7 @@ def calc_empirical_rate(X):
     entropy = -torch.sum(probabilities * torch.log2(probabilities))
     return entropy
 
+# TODO Change std based on empirical rate of input data
 def calc_normal_rate(quantized_values, std=1.0):
     normal_dist = Normal(0, std)
     # Calculating negative log-likelihood as a proxy for rate

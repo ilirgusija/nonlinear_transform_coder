@@ -144,7 +144,7 @@ class MNIST_Coder(nn.Module):
             quantized = uniform_quantizer(features)
             output = self.inverse_transform(quantized)
         return output, quantized
-
+# TODO look at batch norm and/or removing bias from the conv layers
 class MNIST_FCNN(nn.Module):
     def __init__(self):
         super(MNIST_FCNN, self).__init__()
@@ -153,7 +153,7 @@ class MNIST_FCNN(nn.Module):
             nn.Conv2d(1, 16, 3, stride=2, padding=1),  # Output: (16, 14, 14)
             nn.ReLU(),
             nn.Conv2d(16, 32, 3, stride=2, padding=1), # Output: (32, 7, 7)
-            nn.ReLU(),
+            nn.ReLU(), 
             nn.Conv2d(32, 64, 7)                      # Output: (64, 1, 1)
         )
         # Decoder layers
@@ -176,7 +176,6 @@ class MNIST_FCNN(nn.Module):
             quantized = uniform_quantizer(features)
             output = self.inverse_transform(quantized)
         return output, quantized
-
 
 class MNIST_VAE(nn.Module):
     def __init__(self):

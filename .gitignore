@@ -1,6 +1,7 @@
 __pycache__
 node_modules
-data/mnist/*
+data/mnist
+data/MNIST
 tmp/*
 params/*
-!params/model_MNIST_params_0.1.pth
+plots/*
