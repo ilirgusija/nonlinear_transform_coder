@@ -20,7 +20,7 @@ def compute_loss(loss_fn, img, out, q):
     else:
         raise TypeError("loss_fn is not a callable function")
 
-def device_manager(model):
+def device_manager(model=None):
     # Setup for DataParallel
     if torch.backends.mps.is_available():
         device = torch.device("mps")
@@ -28,17 +28,21 @@ def device_manager(model):
         
     elif torch.cuda.is_available():
         device = torch.device("cuda")
-        # Check if multiple GPUs are available
-        num_gpus = torch.cuda.device_count()
-        print(f"Using {num_gpus} GPUs.")
-        
-        # Wrap models with DataParallel if more than one GPU is available
-        if num_gpus > 1:
-            model = nn.DataParallel(model)
+        if model is not None:
+            # Check if multiple GPUs are available
+            num_gpus = torch.cuda.device_count()
+            print(f"Using {num_gpus} GPUs.")
+            
+            # Wrap models with DataParallel if more than one GPU is available
+            if num_gpus > 1:
+                model = nn.DataParallel(model)
     else:
         device = torch.device("cpu")
         print("Using CPU.")
-    return model.to(device), device
+    if model is None:
+        return device
+    else:
+        return model.to(device), device
 
 def uniform_quantizer(x):
     # Define the range of input values
@@ -64,9 +68,10 @@ def calc_empirical_rate(X):
     return entropy
 
 # TODO Change std based on empirical rate of input data
-def calc_normal_rate(quantized_values, std=1.0):
-    normal_dist = Normal(0, std)
-    # Calculating negative log-likelihood as a proxy for rate
+def calc_normal_rate(quantized_values, stds):
+    # Ensure stds is not zero to avoid division by zero
+    stds = stds.clamp(min=1e-6)
+    normal_dist = torch.distributions.Normal(0, stds)
     nll = -normal_dist.log_prob(quantized_values)
     return torch.mean(nll)
 
@@ -74,11 +79,27 @@ def calc_distortion(orig, output):
     dist = nn.MSELoss()
     return dist(orig,output)
 
-def to_tensor(x):
-    if isinstance(x, torch.Tensor):
-        return x.clone().detach()
-    else:
-        return torch.tensor(x, dtype=torch.float32)
+def init_state(num_elements):
+    """Initialize the computation state."""
+    return (torch.zeros(num_elements),  # sum_x
+            torch.zeros(num_elements),  # sum_x_squared
+            0)  # n
+
+def update_state(state, batch):
+    """Update the state with a new batch of data."""
+    sum_x, sum_x_squared, n = state
+    new_n = n + batch.shape[0]
+    new_sum_x = sum_x + torch.sum(batch, dim=0)
+    new_sum_x_squared = sum_x_squared + torch.sum(batch ** 2, dim=0)
+    return (new_sum_x, new_sum_x_squared, new_n)
+
+def calculate_variance(state):
+    """Calculate the variance for each element based on the current state."""
+    sum_x, sum_x_squared, n = state
+    mean_square = sum_x_squared / n
+    square_mean = (sum_x / n) ** 2
+    variance = (n * mean_square - sum_x ** 2) / (n * (n - 1))
+    return variance
 
 def gen_gaussian_data(x, y, batch_size):
     data = torch.randn(x, y)
