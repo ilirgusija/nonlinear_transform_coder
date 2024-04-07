@@ -4,6 +4,32 @@ from torch.distributions import Normal
 from torch.utils.data import TensorDataset, DataLoader
 from torchvision import transforms
 import inspect
+import pynvml
+
+# Function to get the memory info
+def get_free_memory():
+    device_count = pynvml.nvmlDeviceGetCount()
+    free_memory = []
+    for device_id in range(device_count):
+        handle = pynvml.nvmlDeviceGetHandleByIndex(device_id)
+        meminfo = pynvml.nvmlDeviceGetMemoryInfo(handle)
+        free_memory.append(meminfo.free)
+    return free_memory
+
+class AverageMeter:
+    """Compute running average."""
+
+    def __init__(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count
 
 def compute_loss(loss_fn, img, out, q):
     # Get the argument count of the loss function
@@ -28,13 +54,14 @@ def device_manager(model=None):
         
     elif torch.cuda.is_available():
         device = torch.device("cuda")
-        if model is not None:
-            # Check if multiple GPUs are available
-            num_gpus = torch.cuda.device_count()
-            print(f"Using {num_gpus} GPUs.")
+        # Check if multiple GPUs are available
+        num_gpus = torch.cuda.device_count()
+        print(f"Using {num_gpus} GPUs.")
             
+        if model is not None:
             # Wrap models with DataParallel if more than one GPU is available
             if num_gpus > 1:
+                print("Moving device to two GPUs")
                 model = nn.DataParallel(model)
     else:
         device = torch.device("cpu")

@@ -2,49 +2,22 @@ import argparse
 import random
 import shutil
 import sys
-from compressai.models import ScaleHyperprior
+from models import ScaleHyperprior
+import torch.nn.functional as F
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from utils import device_manager
-
-import torchxrayvision as xrv
-from torchxrayvision.datasets import NIH_Dataset
+from utils import *
+from dataset import CustomNIHDataset
 
 from torch.utils.data import DataLoader
 from torchvision import transforms
 
 from compressai.losses import RateDistortionLoss
 from compressai.optimizers import net_aux_optimizer
-from compressai.zoo import image_models
-
-
-class AverageMeter:
-    """Compute running average."""
-
-    def __init__(self):
-        self.val = 0
-        self.avg = 0
-        self.sum = 0
-        self.count = 0
-
-    def update(self, val, n=1):
-        self.val = val
-        self.sum += val * n
-        self.count += n
-        self.avg = self.sum / self.count
-
-
-class CustomDataParallel(nn.DataParallel):
-    """Custom DataParallel to access the module methods."""
-
-    def __getattr__(self, key):
-        try:
-            return super().__getattr__(key)
-        except AttributeError:
-            return getattr(self.module, key)
+import pynvml
 
 def configure_optimizers(net, args):
     """Separate parameters for the main optimizer and the auxiliary optimizer.
@@ -63,9 +36,9 @@ def train_one_epoch(
     device = next(model.parameters()).device
 
     for i, (data) in enumerate(train_loader):
-        d = data['img']
+        d = data
         d = d.to(device)
-
+        
         optimizer.zero_grad()
         aux_optimizer.zero_grad()
 
@@ -77,7 +50,7 @@ def train_one_epoch(
             torch.nn.utils.clip_grad_norm_(model.parameters(), clip_max_norm)
         optimizer.step()
 
-        aux_loss = model.aux_loss()
+        aux_loss = model.aux_loss() if not hasattr(model, 'module') else model.module.aux_loss()
         aux_loss.backward()
         aux_optimizer.step()
 
@@ -107,7 +80,7 @@ def test_epoch(epoch, test_dataloader, model, criterion):
             out_net = model(d)
             out_criterion = criterion(out_net, d)
 
-            aux_loss.update(model.aux_loss())
+            aux_loss.update(model.aux_loss() if not hasattr(model, 'module') else model.module.aux_loss())
             bpp_loss.update(out_criterion["bpp_loss"])
             loss.update(out_criterion["loss"])
             mse_loss.update(out_criterion["mse_loss"])
@@ -122,10 +95,10 @@ def test_epoch(epoch, test_dataloader, model, criterion):
 
     return loss.avg
 
-def save_checkpoint(state, is_best, filename="/data/user3/params/checkpoint.pth.tar"):
+def save_checkpoint(state, is_best, _l, filename="/data/user3/params/checkpoint.pth.tar"):
     torch.save(state, filename)
     if is_best:
-        shutil.copyfile(filename, "checkpoint_best_loss.pth.tar")
+        shutil.copyfile(filename, f"checkpoint_best_loss_{_l}.pth.tar")
 
 def parse_args(argv):
     parser = argparse.ArgumentParser(description="Example training script.")
@@ -147,7 +120,7 @@ def parse_args(argv):
         "-n",
         "--num-workers",
         type=int,
-        default=4,
+        default=8,
         help="Dataloaders threads (default: %(default)s)",
     )
     parser.add_argument(
@@ -187,29 +160,36 @@ def parse_args(argv):
     args = parser.parse_args(argv)
     return args
 
-
 def main(argv):
     args = parse_args(argv)
-
+        # Open the log file
+    # Redirect stdout to the log file
+    # pynvml.nvmlInit()
+    # # Get the ID of the GPU with the most free memory
+    # free_memory = get_free_memory()
+    # best_gpu = free_memory.index(max(free_memory))
+    # # Set this GPU for PyTorch
+    # torch.cuda.set_device(best_gpu)
+    # print(f"Using GPU: {best_gpu}, Free Memory: {free_memory[best_gpu]}")
+    
     if args.seed is not None:
         torch.manual_seed(args.seed)
         random.seed(args.seed)
 
     device = device_manager()
-    train_transforms = transforms.Compose([transforms.ToPILImage(), transforms.RandomCrop(args.patch_size), transforms.ToTensor()])
-    # test_transforms = transforms.Compose([transforms.CenterCrop(args.patch_size), transforms.ToTensor()])
+    print(device)
+    train_transforms = transforms.Compose([transforms.Pad(padding=(16, 16, 16, 16), fill=0, padding_mode='constant'), transforms.ToTensor()])
+    test_transforms = transforms.Compose([transforms.Pad(padding=(16, 16, 16, 16), fill=0, padding_mode='constant'), transforms.ToTensor()])
 
     dataset_path = "/data/user3/data-resized/NIH/images-224"
-    train_dataset = NIH_Dataset(dataset_path)
-    # test_dataset = NIH_Dataset(dataset_path)
-    
+    train_dataset = CustomNIHDataset(dataset_path, dataset_type="train", transform=train_transforms)
+    test_dataset = CustomNIHDataset(dataset_path, dataset_type="validation", transform=test_transforms)
+     
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, num_workers=args.num_workers, shuffle=True, pin_memory=(device == "cuda"))
-    print(train_loader)
-    print(type(train_loader))
-    print(len(train_loader))
-    # test_dataloader = DataLoader(test_dataset, batch_size=args.test_batch_size, num_workers=args.num_workers, shuffle=False, pin_memory=(device == "cuda"))
-    # lambd_ = [1e-5, 1e-4, 1e-3, 0.01, 0.1, 1, 10, 100]
-    lambd_ = [0.0018, 0.0035, 0.0067, 0.0130, 0.0250, 0.0483, 0.0932, 0.1800]
+    test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size, num_workers=args.num_workers, shuffle=False, pin_memory=(device == "cuda"))
+
+    # lambd_ = [0.0018, 0.0035, 0.0067, 0.0130, 0.0250, 0.0483, 0.0932, 0.1800]
+    lambd_ = [0.1800]
     for i, (_l) in enumerate(lambd_):
         if i< 5:
             N = 128
@@ -218,9 +198,8 @@ def main(argv):
             N = 192
             M = 320
         model = ScaleHyperprior(N,M)
-
-        if device=='cuda' and torch.cuda.device_count() > 1:
-            model = CustomDataParallel(model)
+        model, _ = device_manager(model)
+        # model = model.to(device)
 
         optimizer, aux_optimizer = configure_optimizers(model, args)
         lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, "min")
@@ -265,6 +244,8 @@ def main(argv):
                         "lr_scheduler": lr_scheduler.state_dict(),
                     },
                     is_best,
+                    _l,
+                    f"/data/user3/params/checkpoint_best_loss_{_l}.pth"
                 )
 
 
