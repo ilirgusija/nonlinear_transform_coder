@@ -95,7 +95,7 @@ def test_epoch(epoch, test_dataloader, model, criterion):
 
     return loss.avg
 
-def save_checkpoint(state, is_best, _l, filename="/data/user3/params/checkpoint.pth.tar"):
+def save_checkpoint(state, is_best, _l, filename=f"/data/user3/params/checkpoint_{_l}.pth.tar"):
     torch.save(state, filename)
     if is_best:
         shutil.copyfile(filename, f"checkpoint_best_loss_{_l}.pth.tar")
@@ -189,7 +189,7 @@ def main(argv):
     test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size, num_workers=args.num_workers, shuffle=False, pin_memory=(device == "cuda"))
 
     # lambd_ = [0.0018, 0.0035, 0.0067, 0.0130, 0.0250, 0.0483, 0.0932, 0.1800]
-    lambd_ = [0.1800]
+    lambd_ = [0.0250, 0.0483, 0.0932]
     for i, (_l) in enumerate(lambd_):
         if i< 5:
             N = 128
