@@ -144,7 +144,7 @@ class MNIST_Coder(nn.Module):
             quantized = uniform_quantizer(features)
             output = self.inverse_transform(quantized)
         return output, quantized
-# TODO look at batch norm and/or removing bias from the conv layers
+
 class MNIST_FCNN(nn.Module):
     def __init__(self):
         super(MNIST_FCNN, self).__init__()
@@ -192,27 +192,14 @@ class MNIST_VAE(nn.Module):
             nn.ReLU(),
         )
 
-        # Latent space
-        self.fc_mu = nn.Linear(128, 20)
-        self.fc_logvar = nn.Linear(128, 20)
+    def analysis(self, X):
+        return 0
 
-        # Decoder
-        self.decoder = nn.Sequential(
-            nn.Linear(20, 128),
-            nn.ReLU(),
-            nn.Linear(128, 32 * 7 * 7),
-            nn.ReLU(),
-            nn.Unflatten(1, (32, 7, 7)),
-            nn.ConvTranspose2d(32, 16, kernel_size=3, stride=2, padding=1, output_padding=1),
-            nn.ReLU(),
-            nn.ConvTranspose2d(16, 1, kernel_size=3, stride=2, padding=1, output_padding=1),
-            nn.Tanh()
-        )
+    def synthesis(self, X):
+        return 0
 
-    def reparameterize(self, mu, logvar):
-        std = torch.exp(0.5 * logvar)
-        eps = torch.randn_like(std)
-        return mu + eps * std
+    
+
 
     def forward(self, x):
         x = self.encoder(x)

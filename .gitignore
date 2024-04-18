@@ -5,3 +5,7 @@ data/MNIST
 tmp/*
 params/*
 plots/*
+*.pth*
+*.log*
+*.txt
+*.png
